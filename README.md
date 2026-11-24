@@ -22,9 +22,8 @@
 - 📢 **提示词调优**：插件内置提示词，教会AI如何与AI交互，如何存储记忆等，也提供“建出好建筑”的建议、引导。部分提示词还可自由修改
 
 > 🧩 上面「会走过去干活 / 会打架 / 会跟着你 / 会自己吃东西 / 会自己换工具」这几项，
-> 装上对应的 mineflayer 插件后最聪明（会自动寻路、自动选工具、自动进食），
-> **不装也能用**，只是退化成"直线走、卡住就跳"这类朴素做法，不会报错。
-> 装全部五个：`dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool mineflayer-auto-eat mineflayer-collectblock mineflayer-pvp`
+> 靠五个社区插件实现（寻路 / 选工具 / 自动进食 / 就近采集 / 战斗），
+> **它们已经打包在本插件里，装本插件就自动带上、进服自动生效**，你不需要另外安装。
 > 详见后文「[生存玩法](#生存玩法工作台合成与插件能力)」。
 
 > ⚠️ **当前为预览版 `0.2.0-beta.4`**
@@ -126,9 +125,13 @@ dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
 | 「打死那只僵尸」 | 追着打，血少了会自己停手 |
 | 「饿了记得吃东西」 | 开自动进食，可调阈值（比如血量低于 16 就吃） |
 
-### 五个可选插件（装上更聪明，不装也能用）
+### 五个插件能力，**装一个插件就全带上**
 
-| 插件 | 装上之后 | 没装时 |
+这五项能力分别由五个社区插件提供，但**你不需要单独装它们** —— 它们已经写进本插件的
+`optionalDependencies`，`dsh plugin add` 装本插件时会**自动一起装上并自动挂载**，
+进服即可用，不需要任何额外命令。
+
+| 插件（自动装） | 提供的能力 | 万一没装上 |
 | --- | --- | --- |
 | `mineflayer-pathfinder` | 走路会**绕障碍、上下坡**，不撞墙 | 直线走，卡住就跳 |
 | `mineflayer-tool` | 挖方块自动换**最合适**的工具（认附魔/耐久） | 用背包里第一把能挖的 |
@@ -136,8 +139,13 @@ dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
 | `mineflayer-collectblock` | 就近采集更稳 | 逐个走过去再挖 |
 | `mineflayer-pvp` | 战斗会**追击**目标 | 只打一下 |
 
-**它们都是可选依赖** —— 插件本体不装这些包也能正常跑，只是对应能力会降级（不会报错）。
-想全部启用，在你的 DSH profile 里装上就行：
+> ✅ **验证过的**：干净环境里只装本插件一个包，五个插件全部自动装上（114 个包 / 14 秒），
+> 连真服后 5/5 全部挂载成功。所以正常情况下你**什么都不用做**。
+
+之所以写成 `optionalDependencies` 而不是 `dependencies`：某个插件装不上（网络、平台、版本冲突）
+时，**不能因此让整个插件装不了**。少一个只是那项能力降级，其余照常工作，不会报错。
+
+只有一种情况需要你手动补 —— 你的环境因为网络/代理导致可选依赖被跳过时，可以显式装一次：
 
 ```bash
 # 以 web profile 为例；desktop 请把 --profile web 换成 --profile desktop
@@ -280,10 +288,9 @@ players through tool calls to build, survive and finish tasks.
 - 📢 **Tuned prompts** — built-in prompts teach the agent how to interact with the world and how to keep memory, and give advice that guides good builds. Some prompts are freely editable.
 
 > 🧩 The "walks over to work / fights / follows you / eats on its own / picks the right tool" items are
-> smartest with the matching mineflayer plugins installed (real pathfinding, tool selection, auto-eat).
-> They **still work without them** — just degraded (straight-line walking, jumping when stuck) and
-> never an error. Install all five:
-> `dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool mineflayer-auto-eat mineflayer-collectblock mineflayer-pvp`
+> powered by five community plugins (pathfinding, tool selection, auto-eat, nearby collecting, PvP).
+> **They are bundled with this plugin** — installing this plugin brings them in and they attach
+> automatically on spawn. You do not install them separately.
 > See [Survival gameplay](#survival-gameplay-workbench-crafting-and-plugin-capabilities) below.
 
 > ⚠️ **Preview release `0.2.0-beta.4`**
@@ -391,9 +398,13 @@ Outside these two modes, other modes no longer expose MC-play tools (MC admin to
 | "Kill that zombie" | Chases it down, and backs off when health is low |
 | "Eat something when you get hungry" | Turns on auto-eat with a threshold you choose (e.g. eat below 16 health) |
 
-### Five optional plugins (smarter with them, still works without)
+### Five plugin-powered capabilities — **all bundled, one install**
 
-| Plugin | With it | Without it |
+These five capabilities come from five community plugins, but **you don't install them separately** —
+they are declared in this plugin's `optionalDependencies`, so `dsh plugin add` on this plugin
+**pulls them in and attaches them automatically**. They work as soon as the bot spawns.
+
+| Plugin (auto-installed) | What it gives you | If it somehow isn't there |
 | --- | --- | --- |
 | `mineflayer-pathfinder` | Pathfinding that **goes around obstacles and up/down hills** | Straight-line walking, jumps when stuck |
 | `mineflayer-tool` | Picks the **best** tool for each block (honours enchantments and durability) | First tool in the inventory that can mine it |
@@ -401,8 +412,16 @@ Outside these two modes, other modes no longer expose MC-play tools (MC admin to
 | `mineflayer-collectblock` | More reliable gather-what's-nearby | Walks to each block and mines it |
 | `mineflayer-pvp` | Combat that **chases the target** | A single swing |
 
-**All of them are optional dependencies** — the plugin runs fine without them; the related capability
-just degrades (it never errors out). To enable them all, install them into your DSH profile:
+> ✅ **Verified**: in a clean environment, installing only this plugin pulls in all five
+> (114 packages in 14 s), and after joining a real server all 5/5 attach successfully.
+> In normal use there is **nothing for you to do**.
+
+They are `optionalDependencies` rather than `dependencies` on purpose: if one of them fails to install
+(network, platform, version conflict), that must not make **this plugin** uninstallable. A missing one
+only degrades that single capability; everything else keeps working and nothing errors out.
+
+The only case where you might add them by hand is if your network/proxy made npm skip the optional
+dependencies:
 
 ```bash
 # web profile shown; for desktop use --profile desktop

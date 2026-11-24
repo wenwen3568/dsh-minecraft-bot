@@ -4491,6 +4491,18 @@ console.log('\n--- 依赖面 + 打包完整性（mineflayer 是**依赖**不是"
     ['运行时 vec3 与 mineflayer 解析到**同一个文件**', sameVec3],
     ['解析到的 mineflayer 版本满足声明范围（`^4.37.1` 允许 4.39.0）', !!mfVersion && caretOk(deps.mineflayer, mfVersion)],
     ['sharp 放 optionalDependencies（原生模块装不上也不该让整个安装失败）', typeof opt.sharp === 'string' && deps.sharp === undefined],
+    // 🔴 2026-11 用户要求："把 mineflayer 那些插件集成在一个插件里" ——
+    //    意思是**装本插件一个包就该带上全部五个**，而不是让用户再单独 add 五个。
+    //    这组断言钉住：五个包必须都声明在 optionalDependencies（而不是 devDeps 或漏掉）。
+    //    之所以不写成 dependencies：任何一个装不上都不能让本插件装不上（见下面那条说明）。
+    ...['mineflayer-pathfinder', 'mineflayer-tool', 'mineflayer-auto-eat', 'mineflayer-collectblock', 'mineflayer-pvp']
+      .map((name) => [
+        `${name} 随本插件一起装（在 optionalDependencies 里，用户不用另装）`,
+        typeof opt[name] === 'string' && deps[name] === undefined && devDeps[name] === undefined,
+      ]),
+    ['五个 mineflayer 插件**都不在** dependencies（否则一个装不上就整包装不上）',
+      ['mineflayer-pathfinder', 'mineflayer-tool', 'mineflayer-auto-eat', 'mineflayer-collectblock', 'mineflayer-pvp']
+        .every((n) => deps[n] === undefined)],
     ['宿主包走 peerDependencies（@deepseek-ai/dsh-llm / dsh-tools / schemastery）', typeof peer['@deepseek-ai/dsh-llm'] === 'string' && typeof peer['@deepseek-ai/dsh-tools'] === 'string' && typeof peer['@deepseek-ai/schemastery'] === 'string'],
     ['dsh peer 范围 = 支持的运行时范围（schemastery 不是 dsh-* 名字，宿主不查，保持 *）', peer['@deepseek-ai/dsh-llm'] === DSH_RANGE && peer['@deepseek-ai/dsh-tools'] === DSH_RANGE && peer['@deepseek-ai/schemastery'] === '*'],
     ['engines.dsh 与 peer 范围一致（engines.dsh 是官方声明字段，当前宿主不强制）', pkg.engines?.dsh === DSH_RANGE],
@@ -4504,6 +4516,21 @@ console.log('\n--- 依赖面 + 打包完整性（mineflayer 是**依赖**不是"
     //    别人的 npm 布局解析不到 ⇒ createUserMessage 为 null ⇒ 提示行一条都建不出来。
     //    工具白名单/guard 只用 ctx，所以症状精确地是"工具都在、提示词全无"。
     ['🔴 dsh-llm 在依赖里声明了（就是那次"提示词没注入"的根因）', typeof peer['@deepseek-ai/dsh-llm'] === 'string' && typeof devDeps['@deepseek-ai/dsh-llm'] === 'string'],
+    // 声明了还得**真的接入**：包在 optionalDependencies 里、但 PLUGIN_SPECS 没列它 = 装了也不会加载
+    ['五个插件在 PLUGIN_SPECS 里都有对应条目（装了才会被真正挂载）', (() => {
+      try {
+        const src = readFileSync(new URL('./src/plugins.mjs', import.meta.url), 'utf8')
+        return ['mineflayer-pathfinder', 'mineflayer-tool', 'mineflayer-auto-eat', 'mineflayer-collectblock', 'mineflayer-pvp']
+          .every((n) => src.includes(`pkg: '${n}'`))
+      } catch { return false }
+    })()],
+    // 挂载必须是"进服自动"的，不能只提供个手动接口等用户自己调
+    ['进服后自动挂载五个插件（core.mjs 的 spawn 路径里调了 attachExternalPlugins）', (() => {
+      try {
+        const core = readFileSync(new URL('./src/core.mjs', import.meta.url), 'utf8')
+        return /this\.attachExternalPlugins\(b\)/.test(core) && /async attachExternalPlugins/.test(core)
+      } catch { return false }
+    })()],
   ]
   for (const [label, passed] of checks) console.log(`  ${passed ? '✅' : '❌'} ${label}`)
   if (!mfVersion) console.log('  ⚠️ 依赖没解析到（先 npm install / pnpm install 再跑自检）')
