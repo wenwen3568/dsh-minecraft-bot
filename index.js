@@ -1,5 +1,5 @@
 /**
- * whale_craft —— DSH 原生 Minecraft Agent 插件（host 半端）
+ * dsh_minecraft_bot —— DSH 原生 Minecraft Agent 插件（host 半端）
  * ============================================================================
  * 目标：把"我"接进 MC 做成**一等公民**，而不是外挂一个 MCP 子进程。
  *
@@ -15,7 +15,7 @@
  *     唤醒**同一个会话**）。本插件**不存在**任何跨会话唤醒实现。
  *
  * 机器人核心在 ./src/core.mjs（不依赖 DSH，可独立测试）。
- * 挂载：profile cordis.patch.yml 里 `- id: whale_craft / name: whale_craft`。
+ * 挂载：profile cordis.patch.yml 里 `- id: dsh_minecraft_bot / name: dsh_minecraft_bot`。
  * ============================================================================
  */
 /* 🔴 2026-10-04（GitHub issue #5）：这里**曾经**是两行静态 import（`@deepseek-ai/schemastery` /
@@ -39,7 +39,7 @@ import { EXPRESS_DIR, OUT_DIR, expressRootOf, outRootOf, parseExpressPath, parse
 import { ExpressShareServer, portAvailable } from './src/express-server.mjs'
 import { Watchdog, WATCH_DEFAULTS } from './src/watchdog.mjs'
 import { MemoryStore } from './src/memory.mjs'
-import { PluginConfig, DEFAULT_CONFIG, resolveStateDir, pickPresetTarget, pickPresetSource, isCopiedPresetDescription, PREFERRED_PRESET_SOURCES, MC_PRESET_SPEC, planPresetAction, patchPersonaInComposition, personaTextKeyOf, disableShellInComposition, patchToolGroupsIntoComposition, MC_PRESET_TOOL_GROUPS } from './src/config.mjs'
+import { PluginConfig, DEFAULT_CONFIG, resolveStateDir, migrateLegacyStateDir, pickPresetTarget, pickPresetSource, isCopiedPresetDescription, PREFERRED_PRESET_SOURCES, MC_PRESET_SPEC, planPresetAction, patchPersonaInComposition, personaTextKeyOf, disableShellInComposition, patchToolGroupsIntoComposition, MC_PRESET_TOOL_GROUPS } from './src/config.mjs'
 import { renderFetchText, WEB_FETCH_MAX_OUTPUT_CHARS } from './src/webfetch.mjs'
 import { fetchUrl, decodeBodyText, contentTypeAllowed, WEB_IMAGE_FORMATS } from './src/webget.mjs'
 import { AccountStore, parseAuthlibCard, normalizeServerUrl, dashUuid } from './src/accounts.mjs'
@@ -57,7 +57,7 @@ import { ServerHistory } from './src/serverhistory.mjs'
 import { buildConnectPrompt } from './src/connect-prompt.mjs'
 import { waitForEvents } from './src/wait.mjs'
 
-export const name = 'whale_craft'
+export const name = 'dsh_minecraft_bot'
 export const inject = ['webServer', 'tools']
 
 /** 插件版本（`mc_capabilities` 会报给 Master；读不到就 unknown） */
@@ -166,7 +166,7 @@ class McSession {
     this.agentId = agentId
     this.config = config
     // 不传固定 config：连接参数走 connect()；instanceId 让每个会话有独立的锁与日志标识。
-    // 🔴 lockDir = 插件的家（`$DSH_HOME/whale_craft/`）：**别把锁文件写进插件包目录**
+    // 🔴 lockDir = 插件的家（`$DSH_HOME/dsh_minecraft_bot/`）：**别把锁文件写进插件包目录**
     //    （装进 node_modules 后可能是只读的，升级时也会被覆盖）——与日志同一条理由。
     this.bot = new McBot({ instanceId: agentId, ...(lockDir ? { lockDir } : {}) })
     this.mode = 'standby'           // standby / active / sleep
@@ -280,7 +280,7 @@ class McRegistry {
   constructor(ctx, config) {
     this.ctx = ctx
     this.config = config
-    /** 插件状态目录（`$DSH_HOME/whale_craft/`）：会话锁文件放这里，不写插件包目录 */
+    /** 插件状态目录（`$DSH_HOME/dsh_minecraft_bot/`）：会话锁文件放这里，不写插件包目录 */
     this.lockDir = null
     /** @type {Map<string, McSession>} */
     this.sessions = new Map()
@@ -293,7 +293,7 @@ class McRegistry {
       sess = new McSession(agentId, this.config, this.lockDir)
       sess.ensureWired(this.ctx)
       this.sessions.set(agentId, sess)
-      this.ctx.logger?.info?.(`[whale_craft] 新建会话实例：${agentId}`)
+      this.ctx.logger?.info?.(`[dsh_minecraft_bot] 新建会话实例：${agentId}`)
     }
     return sess
   }
@@ -307,7 +307,7 @@ class McRegistry {
     if (sess) {
       sess.destroy()
       this.sessions.delete(agentId)
-      this.ctx.logger?.info?.(`[whale_craft] 销毁会话实例：${agentId}`)
+      this.ctx.logger?.info?.(`[dsh_minecraft_bot] 销毁会话实例：${agentId}`)
     }
   }
 
@@ -366,22 +366,30 @@ export function apply(ctx, rawConfig) {
   if (!Array.isArray(config.mentions)) config.mentions = [...DEFAULT_MENTIONS]
   const registry = new McRegistry(ctx, config)
 
-  /* ── 插件状态目录（**配置 + 账户库**）：`$DSH_HOME/whale_craft/` ──────────────────
+  /* ── 插件状态目录（**配置 + 账户库**）：`$DSH_HOME/dsh_minecraft_bot/` ──────────────────
    * 🔴 2026-09-16 用户要求：配置和账户**不该躺在工作区里** —— 工作区是项目的家，
    *    插件有插件自己的家。宿主（app-boot）`ctx.provide('dshHomePath', …)` 给了这个路径，
    *    与 `$DSH_HOME/skills` / `.agent-presets` / `storages` / `attachments` 同一套规矩。
    * ------------------------------------------------------------------------ */
   const dshHomePath = (() => { try { return ctx.get('dshHomePath') } catch { return undefined } })()
-  const stateDir = resolveStateDir({ dshHomePath, whaleDir: process.env.WHALE_CRAFT_DIR })
+  const stateDir = resolveStateDir({ dshHomePath, isoDir: process.env.MCBOT_DIR })
+  // 🔴 改名前的老目录（whale_craft/）在这里一次性搬过来，否则老用户会"账户没了、设置全丢"。
+  //    只在"新目录不存在 + 老目录存在"时动手；失败也不影响启动（继续用新目录）。
+  try {
+    const mig = migrateLegacyStateDir(stateDir)
+    if (mig.migrated) logLine(`状态目录已从旧名迁移：${mig.from} → ${stateDir}`)
+  } catch (e) {
+    logLine(`状态目录迁移失败（不影响使用）：${String(e?.message ?? e).slice(0, 160)}`)
+  }
   registry.lockDir = stateDir      // 会话锁文件也放插件自己的家（别写进插件包目录）
 
   /* ── 记忆 / 提示词：挂在**会话工作区**下，不再假设"插件装在工作区里" ──────────────
    * 抽取成标准插件后，包可能装在 `node_modules/` 或任意目录，**不能**再用 `__dirname/..` 推工作区。
    * 正路：宿主给工具的 `exec.agent.session.header.cwd` 就是该会话的工作区（tool-fs 同款来源）。
-   * 记忆与提示词都挂它下面：`<工作区>/.whale-craft/`。
+   * 记忆与提示词都挂它下面：`<工作区>/.minecraft-bot/`。
    * 🔴 用户 2026-10-08：**只认这一个位置** —— 没有 env、没有配置重定向（此前有
-   *    `WHALE_CRAFT_MEMORY_DIR` 与 `config.memoryDir` 两级覆盖，会让调试/生产不一致，已全部删掉）。
-   *    调试就用一个**专门的调试工作区**，记忆自然落在它的 `.whale-craft` 里。
+   *    `MCBOT_MEMORY_DIR` 与 `config.memoryDir` 两级覆盖，会让调试/生产不一致，已全部删掉）。
+   *    调试就用一个**专门的调试工作区**，记忆自然落在它的 `.minecraft-bot` 里。
    * ------------------------------------------------------------------------ */
   /** 会话工作区（拿不到就 null：说明调用方没有 agent 上下文） */
   const workspaceOf = (agent) => {
@@ -389,11 +397,11 @@ export function apply(ctx, rawConfig) {
     return typeof cwd === 'string' && cwd.trim() !== '' ? cwd : null
   }
 
-  /** 记忆根：**就是** `<会话工作区>/.whale-craft`；没有工作区 → null（不造兜底目录） */
-  const memoryRootFor = (cwd) => (cwd ? join(cwd, '.whale-craft') : null)
+  /** 记忆根：**就是** `<会话工作区>/.minecraft-bot`；没有工作区 → null（不造兜底目录） */
+  const memoryRootFor = (cwd) => (cwd ? join(cwd, '.minecraft-bot') : null)
 
   /**
-   * 老版本（≤0.3.x）把**全局** config/accounts 放在 `<工作区>/.whale-craft/`：每个工作区首次见到时搬一次。
+   * 老版本（≤0.3.x）把**全局** config/accounts 放在 `<工作区>/.minecraft-bot/`：每个工作区首次见到时搬一次。
    * ⚠️ config.json 现在是**本插件按工作区**的配置（src/wsconfig.mjs），不再是旧遗留：
    *    只搬"看着像旧全局配置"的（能解析、且不是本格式）；坏文件与新格式一概不碰。
    */
@@ -402,7 +410,7 @@ export function apply(ctx, rawConfig) {
     if (!cwd || migratedWorkspaces.has(cwd)) return
     migratedWorkspaces.add(cwd)
     for (const [name, label] of [['config.json', '全局配置'], ['accounts.json', '账户库']]) {
-      const from = join(cwd, '.whale-craft', name)
+      const from = join(cwd, '.minecraft-bot', name)
       const to = join(stateDir, name)
       try {
         if (existsSync(to) || !existsSync(from)) continue
@@ -428,7 +436,7 @@ export function apply(ctx, rawConfig) {
     let store = memoryCache.get(root)
     if (!store) {
       migrateWorkspaceState(cwd)
-      // 🔴 `create:false`：**读**记忆不该顺手把 `.whale-craft/` 建出来。
+      // 🔴 `create:false`：**读**记忆不该顺手把 `.minecraft-bot/` 建出来。
       //    建目录/建行事准则（RULES.md）只发生在"首次发起 MC 模式会话"与"点开 MC设置"这两个时机
       //    （用户 2026-09-16 定），由 `ensureMemoryRoot` 显式做。
       store = new MemoryStore(root, { create: false })
@@ -471,7 +479,7 @@ export function apply(ctx, rawConfig) {
     if (!sessionId) return null
     try { return ctx.get('agents')?.get?.(String(sessionId)) ?? null } catch { return null }
   }
-  logLine(`whale_craft：配置 ${pluginConfig.file}｜记忆 <会话工作区>/.whale-craft`
+  logLine(`dsh_minecraft_bot：配置 ${pluginConfig.file}｜记忆 <会话工作区>/.minecraft-bot`
     + `｜工具定义 ${toolDefKind() === 'host' ? '宿主 @deepseek-ai/dsh-tools' : '自带兜底'}`
     + `｜Config ${Config ? 'schema（宿主 schemastery）' : '无（宿主 schemastery 不可用）'}`)
 
@@ -484,8 +492,8 @@ export function apply(ctx, rawConfig) {
     return 'web'
   }
 
-  /* ─────────── 发布区（`.whale-craft/.express/`）：地址用**工作区 uuid** ───────────
-   * 用户 2026-09-17 定稿：`<base>/api/whale-craft/express/<工作区 uuid>/<剩余路径>`。
+  /* ─────────── 发布区（`.minecraft-bot/.express/`）：地址用**工作区 uuid** ───────────
+   * 用户 2026-09-17 定稿：`<base>/api/minecraft-bot/express/<工作区 uuid>/<剩余路径>`。
    * uuid 直接从宿主的工作区注册表拿（`ctx.workspaceRegistry.list()` 是**同步**的，`path` 已 realpath 规范化）——
    * 不再用"目录名 + 进程内见过的工作区集合"那套（同名会撞、改名会失效、重启要重新见过）。
    * 🔴 用户定的兜底是 **(a) 拒绝**：注册表里查不到这个 cwd 对应的 uuid 就不分享（不退回目录名）。
@@ -540,7 +548,7 @@ export function apply(ctx, rawConfig) {
   /* ─────────── 「文件分享」页要的两件事：看现状 / 清除数据（用户 2026-09-17 定）───────────
    * · 现状 = 这个工作区的发布区在哪、攒了几个文件、多大（分享模式本身是全局配置，见 configView）；
    * · 清除 = 用户确认后把 `.express/` 下的东西**全删掉**（目录自己留着，AI 不用重新建）。
-   * 🔴 目录永远由服务端按「工作区 + `.whale-craft/.express`」推出来，**不接受任何用户给的路径**。
+   * 🔴 目录永远由服务端按「工作区 + `.minecraft-bot/.express`」推出来，**不接受任何用户给的路径**。
    * ------------------------------------------------------------------------ */
   const sharedStat = (cwd) => {
     const root = expressRootOf(memoryRootFor(cwd))
@@ -623,7 +631,7 @@ export function apply(ctx, rawConfig) {
     return normalizeExpressBase(`${proto}://${host}`) ?? ''
   }
 
-  /* ─────────── MC账户库：元数据在 $DSH_HOME/whale_craft/accounts.json，凭据只进宿主凭据服务 ───────────
+  /* ─────────── MC账户库：元数据在 $DSH_HOME/dsh_minecraft_bot/accounts.json，凭据只进宿主凭据服务 ───────────
    * 🔴 LLM 永远拿不到密码/token：工具只回基本信息；凭据只在这两个 helper 里出现，且不外传。
    * ------------------------------------------------------------------------ */
   const accounts = new AccountStore({ dir: stateDir, logger: ctx.logger ?? null })
@@ -704,7 +712,7 @@ export function apply(ctx, rawConfig) {
         }
       }
       await accounts.refreshCredentialIndex()
-    } catch (e) { ctx.logger?.warn?.(`[whale_craft] 回写账户信息失败：${e.message}`) }
+    } catch (e) { ctx.logger?.warn?.(`[dsh_minecraft_bot] 回写账户信息失败：${e.message}`) }
   }
 
   /** 把"需要用户处理"的提示拼进错误里（让 LLM 知道该叫用户去「MC设置」） */
@@ -719,7 +727,7 @@ export function apply(ctx, rawConfig) {
   // 注入用的 AbortSignal（插件生命周期）。`sessionController.prompt` 是 @Remote 方法，
   // 签名 (request, signal)，**必须传 signal**——否则 undefined.throwIfAborted() 直接炸。
   const promptAbort = new AbortController()
-  ctx.effect(() => () => { try { promptAbort.abort() } catch {} }, 'whale_craft: prompt signal')
+  ctx.effect(() => () => { try { promptAbort.abort() } catch {} }, 'dsh_minecraft_bot: prompt signal')
 
   ctx.effect(() => () => { registry.destroyAll() })
 
@@ -809,7 +817,7 @@ export function apply(ctx, rawConfig) {
     //    `owner === undefined` 的"无主 job"（宿主自己起的后台任务）一起列出来**；
     //    而 `assertAccess()` 是 `if (job.owner !== undefined && ...) throw`，**对无主 job 不设防**。
     //    照旧代码那样"列出来就全杀"，点一次「强制停止」会顺手清掉跟这个会话毫无关系的宿主任务。
-    //    （同一个坑 PR #2 的作者也报过，见 <user>/whale-craft#2。）
+    //    （同一个坑 PR #2 的作者也报过，见 <user>/minecraft-bot#2。）
     //    🔴 2026-10-04（同 PR #2）：`caller` 必须是**会话 id 字符串**——`list(caller)` 内部
     //    按 `job.owner.id === caller` 过滤、`kill(id, caller)` 的 `assertAccess` 也一样；
     //    传 agent 对象时"自己的 job 一个都列不出来、也杀不掉"（还会把无主 job 列出来）。
@@ -836,7 +844,7 @@ export function apply(ctx, rawConfig) {
       await waitIdle(800)
     }
 
-    ctx.logger?.info?.(`[whale_craft] 强制停止 ${sessionId}｜${JSON.stringify(out)}`)
+    ctx.logger?.info?.(`[dsh_minecraft_bot] 强制停止 ${sessionId}｜${JSON.stringify(out)}`)
     return out
   }
 
@@ -880,9 +888,9 @@ export function apply(ctx, rawConfig) {
       }
       return originalArchive.call(this, sessionId)
     }
-    scope.effect(() => () => { wsRegistry.archiveSession = originalArchive }, 'whale_craft: archive guard')
+    scope.effect(() => () => { wsRegistry.archiveSession = originalArchive }, 'dsh_minecraft_bot: archive guard')
     logLine('已挂上归档保护（归档前自动停止 MC）')
-    scope.logger?.info?.('[whale_craft] 已挂上归档保护（归档前自动停止 MC）')
+    scope.logger?.info?.('[dsh_minecraft_bot] 已挂上归档保护（归档前自动停止 MC）')
   }
 
   if (ctx.get('workspaceRegistry') === undefined) {
@@ -901,7 +909,7 @@ export function apply(ctx, rawConfig) {
 
   /**
    * 设置页要的那几项配置（集中一处，GET/PATCH 共用）。
-   * 全局键来自 PluginConfig（`$DSH_HOME/whale_craft/config.json`）；
+   * 全局键来自 PluginConfig（`$DSH_HOME/dsh_minecraft_bot/config.json`）；
    * 三个提示词开关是**按工作区**的（`<记忆根>/config.json`，src/wsconfig.mjs）。
    *
    * 🔴 `cwd` 可为 **null**（从插件菜单等"无会话/无工作区"入口打开设置时）：
@@ -916,7 +924,7 @@ export function apply(ctx, rawConfig) {
       workspaceName: hasWorkspace ? workspaceTitleOfCwd(cwd) : null,
       commandWhitelist: pluginConfig.get('commandWhitelist'),
       allowAllCommands: pluginConfig.get('allowAllCommands'),
-      injectWhaleCraftAgentsMd: ws ? ws.injectWhaleCraftAgentsMd : null,
+      injectMinecraftBotAgentsMd: ws ? ws.injectMinecraftBotAgentsMd : null,
       injectWorkspaceAgentsMd: ws ? ws.injectWorkspaceAgentsMd : null,
       // 「提示词」页的「随版本更新」（默认开；按工作区）
       rulesFollowVersion: ws ? ws.rulesFollowVersion !== false : null,
@@ -1046,7 +1054,7 @@ export function apply(ctx, rawConfig) {
     /**
      * 「MC设置」这组接口的**工作区闸门**（用户 2026-09-16）：没有工作区 → 拒绝（400），
      * 不猜、也不落到 `$DSH_HOME` 兜底目录。顺带承担"**点开 MC设置**"这个时机：
-     * 把该工作区的 `.whale-craft/`（README.md / RULES.md）备好。
+     * 把该工作区的 `.minecraft-bot/`（README.md / RULES.md）备好。
      * （"无工作区也能用"的接口改用下面的 `cwdOf`，不走这里。）
      */
     const settingsGate = async (sessionId, cwdHint) => {
@@ -1073,9 +1081,9 @@ export function apply(ctx, rawConfig) {
       url.searchParams.get('cwd') ?? b?.cwd,
     ).then((r) => (r ? r.cwd : null))
 
-    /* 账户 / 认证服务器是**全局**数据（`$DSH_HOME/whale_craft/accounts.json` + 凭据库），
+    /* 账户 / 认证服务器是**全局**数据（`$DSH_HOME/dsh_minecraft_bot/accounts.json` + 凭据库），
      * 不绑工作区：从插件菜单等"无工作区"入口打开设置也要能增删账户 —— 所以这组**不走 settingsGate**。
-     * （顺带"点开设置即建档 .whale-craft"的副作用改由 config GET 承担，见下。） */
+     * （顺带"点开设置即建档 .minecraft-bot"的副作用改由 config GET 承担，见下。） */
     if (path === '/api/mc/accounts' && req.method === 'GET') {
       return ok({
         defaultAccount: accounts.resolve()?.innerID ?? null,
@@ -1141,7 +1149,7 @@ export function apply(ctx, rawConfig) {
       return ok(accounts.removeAuthServer(String(body.id ?? '')))
     }
     /* `/api/mc/config` **可无工作区**（全局键照常，工作区键为 null）。
-     * 顺带承担"点开 MC设置即建档 .whale-craft"这个时机 —— 但**只在该请求真有工作区时**。 */
+     * 顺带承担"点开 MC设置即建档 .minecraft-bot"这个时机 —— 但**只在该请求真有工作区时**。 */
     if (path === '/api/mc/config' && req.method === 'GET') {
       const cwd = await cwdOf(null)
       if (cwd) ensureMemoryRootForCwd(cwd)
@@ -1165,7 +1173,7 @@ export function apply(ctx, rawConfig) {
         await syncExpressServer()
       }
       const wsPatch = {}
-      for (const k of ['injectWhaleCraftAgentsMd', 'injectWorkspaceAgentsMd', 'rulesFollowVersion']) {
+      for (const k of ['injectMinecraftBotAgentsMd', 'injectWorkspaceAgentsMd', 'rulesFollowVersion']) {
         if (body[k] !== undefined) wsPatch[k] = body[k]
       }
       if (cwd && Object.keys(wsPatch).length) wsCfgPatch(cwd, wsPatch)
@@ -1211,8 +1219,8 @@ export function apply(ctx, rawConfig) {
       return ok(clearShared(gate.cwd))
     }
 
-    /* ── 提示词（「MC设置 → 提示词」页 = `.whale-craft/RULES.md`）：读 / 存 / 恢复默认 ──
-     * 🔴 它是**按会话工作区**的（`<工作区>/.whale-craft/RULES.md`）。
+    /* ── 提示词（「MC设置 → 提示词」页 = `.minecraft-bot/RULES.md`）：读 / 存 / 恢复默认 ──
+     * 🔴 它是**按会话工作区**的（`<工作区>/.minecraft-bot/RULES.md`）。
      *   · GET  **可无工作区** —— 无则**只读**返回内置默认提示词（前端展示用，不建档）；
      *   · PUT/DELETE **必须有工作区**（写入没地方放）。
      * 有工作区则顺带把文件备好（点开设置即建）。 */
@@ -1277,14 +1285,14 @@ export function apply(ctx, rawConfig) {
   }
 
   /**
-   * 发布区服务：`GET/HEAD /api/whale-craft/express/<工作区 uuid>/<剩余路径>`
-   *   → `<工作区>/.whale-craft/.express/<剩余路径>`（**子目录可以有**）。
+   * 发布区服务：`GET/HEAD /api/minecraft-bot/express/<工作区 uuid>/<剩余路径>`
+   *   → `<工作区>/.minecraft-bot/.express/<剩余路径>`（**子目录可以有**）。
    *
    * 用户 2026-09-16 定的规矩（照做）：
    *   · **不用 token**（DSH 本身禁止公网访问；真要架公网，架的人自己加代理与鉴权）；
    *   · **目录即白名单**：只有 `.express/` 下的文件可访问，`.out/`（默认输出）不对外；
    *   · **所有扩展名都放行**（用户自己把握）；
-   *   · 🔴 **必须防穿透**：段级校验（`.whale-craft` 那边已做）之后，这里再用
+   *   · 🔴 **必须防穿透**：段级校验（`.minecraft-bot` 那边已做）之后，这里再用
    *     `realpath` 复查一次"真实路径仍在发布区里" —— 这样**符号链接也跳不出去**。
    *   · 信任栅栏在路由入口处（非回环且不在 trustedHosts → 403）。
    *
@@ -1383,7 +1391,7 @@ export function apply(ctx, rawConfig) {
   ctx.effect(() => {
     void syncExpressServer()
     return () => { void expressServer.stop() }
-  }, 'whale_craft: 发布区独立端口（desktop 模式）')
+  }, 'dsh_minecraft_bot: 发布区独立端口（desktop 模式）')
 
   /** 分支标题 +1（保留半角/全角括号），与宿主 `ClientSessions.fork` 的 `increaseTitle` 同款。 */
   const increasedForkTitle = (title) => {
@@ -1464,7 +1472,7 @@ export function apply(ctx, rawConfig) {
         ok: false,
         error: `没能把新会话切到 MC+ 模式：${presetError ?? '未知原因'}`,
         hint: notFound
-          ? 'MC+ 模式（preset id：minecraft-plus）没装或没注册——先确认 whale_craft 的 preset 已随插件加载。'
+          ? 'MC+ 模式（preset id：minecraft-plus）没装或没注册——先确认 dsh_minecraft_bot 的 preset 已随插件加载。'
           : (rolledBack ? '已回撤这次分支，源会话不受影响。可稍后重试，或手动新建一个 MC+ 会话。'
             : '这次分支**没能自动回撤**，会话列表里可能多出一个普通会话，可自行忽略/归档。'),
         rolledBack,
@@ -1487,8 +1495,8 @@ export function apply(ctx, rawConfig) {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const path = url.pathname
 
-    // 🔴 2026-09-17：发布区**不再挂在 `/api/mc` 下**（旧地址 `/api/mc/whale-craft/<目录名>/…` 已停用）。
-    //    新地址是 `/api/whale-craft/express/<工作区 uuid>/…`，由**自己的顶层前缀路由**服务（见 shareRoute）。
+    // 🔴 2026-09-17：发布区**不再挂在 `/api/mc` 下**（旧地址 `/api/mc/minecraft-bot/<目录名>/…` 已停用）。
+    //    新地址是 `/api/minecraft-bot/express/<工作区 uuid>/…`，由**自己的顶层前缀路由**服务（见 shareRoute）。
 
     if (req.method === 'GET' && path === '/api/mc/status') {
       const sessionId = url.searchParams.get('sessionId') ?? ''
@@ -1525,7 +1533,7 @@ export function apply(ctx, rawConfig) {
      *    所以这里**不再**因为"没工作区"把 `mcMode` 压成 false（那正是前端藏入口的依据）——
      *    改成额外报 `hasWorkspace`，让前端自己决定是打开设置还是提示。
      *    注意：`applyMcModePolicy` 里"没工作区就不当 MC 会话"的**服务端行为没变**
-     *    （不套工具白名单、不注入提示词、`.whale-craft` 也不建），变的只是**入口可见性**。
+     *    （不套工具白名单、不注入提示词、`.minecraft-bot` 也不建），变的只是**入口可见性**。
      * ──────────────────────────────────────────────────────────────────── */
     if (req.method === 'GET' && path === '/api/mc/mode') {
       const sessionId = url.searchParams.get('sessionId') ?? ''
@@ -1574,7 +1582,7 @@ export function apply(ctx, rawConfig) {
             // **实际投出去的**插件提示行（不是"我们打算投"）：投递是唯一通道，这里就是判据
             notices: sent,
             segments: {
-              'agents-md': sent.includes('.whale-craft/RULES.md') ? cur.text.length : 0,
+              'agents-md': sent.includes('.minecraft-bot/RULES.md') ? cur.text.length : 0,
               'workspace-agents-md': sent.includes('AGENTS.md') ? 1 : 0,
             },
           }
@@ -1598,7 +1606,7 @@ export function apply(ctx, rawConfig) {
 
     /* ── 「连接到MC」弹窗点「连接」/ 局域网行：**注入提示词 + 让该会话跑一轮** ──────────
      * 🔴 这里**只注入、不真连**：真正的连接由 LLM 去调 `mc_connect` 完成（用户 2026-10-04 定）。
-     * 🔴 注入走**插件提示行**（`source.kind='plugin:whale_craft'`），**绝不冒充用户发言**；
+     * 🔴 注入走**插件提示行**（`source.kind='plugin:dsh_minecraft_bot'`），**绝不冒充用户发言**；
      *    唤醒范式照抄看门狗（先 interruptWait，再 steer——空闲起一轮、运行中插话）。
      * 历史只记**手动输入**的地址（`via!=='lan'`）；局域网直连不记。 */
     if (req.method === 'POST' && path === '/api/mc/connect') {
@@ -1620,13 +1628,13 @@ export function apply(ctx, rawConfig) {
       try { registry.peek(sessionId)?.interruptWait?.('connect') } catch { /* 没在等就算了 */ }
       /**
        * 🔴 **新对话页**（`asUser:true`）：插件提示行在新会话里不灵（实测）⇒ **模拟玩家发言**：
-       *    来源 `kind:'user'`、正文前加 `[system] `。**对话中**仍走插件提示行（`plugin:whale_craft` + notice）。
+       *    来源 `kind:'user'`、正文前加 `[system] `。**对话中**仍走插件提示行（`plugin:dsh_minecraft_bot` + notice）。
        */
       const message = asUser
         ? userMessage({ content: [{ type: 'text', text: `[system] ${text}` }], source: { kind: 'user' } })
         : userMessage({
           content: [{ type: 'text', text }],
-          source: { kind: 'plugin:whale_craft', form: 'notice', summary: `连接到MC：${address}`.slice(0, 120) },
+          source: { kind: 'plugin:dsh_minecraft_bot', form: 'notice', summary: `连接到MC：${address}`.slice(0, 120) },
         })
       agent.steer(message)
       logLine(`连接到MC：已${asUser ? '投递玩家消息' : '注入提示词'}（${address}｜${accountLabel}｜via=${via}）`)
@@ -1676,27 +1684,27 @@ export function apply(ctx, rawConfig) {
         return
       }
       try { await handleMcApi(req, res) } catch (e) {
-        ctx.logger?.warn?.(`[whale_craft] /api/mc 处理失败：${e instanceof Error ? e.message : String(e)}`)
+        ctx.logger?.warn?.(`[dsh_minecraft_bot] /api/mc 处理失败：${e instanceof Error ? e.message : String(e)}`)
         sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) })
       }
     },
   }
-  ctx.effect(() => ctx.webServer.register(apiRoute), 'whale_craft: /api/mc 路由')
+  ctx.effect(() => ctx.webServer.register(apiRoute), 'dsh_minecraft_bot: /api/mc 路由')
 
   /**
-   * 发布区服务路由（用户 2026-09-17 定稿）：`/api/whale-craft/express/<工作区 uuid>/<剩余路径>`。
+   * 发布区服务路由（用户 2026-09-17 定稿）：`/api/minecraft-bot/express/<工作区 uuid>/<剩余路径>`。
    *
    * 为什么单独一条前缀路由而不是挂 `/api/mc` 下：
    *   · 用户要求地址**放在 `/api` 后面**、但不要混进 `/api/mc`（那是设置接口）；
    *   · webServer 是**最长前缀优先**（`packages/host/webserver/src/index.ts:317`），
-   *     所以 `/api/whale-craft` 会赢过宿主自己在 `/api` 上的 RPC 前缀，跟注册顺序无关；
+   *     所以 `/api/minecraft-bot` 会赢过宿主自己在 `/api` 上的 RPC 前缀，跟注册顺序无关；
    *   · 信任栅栏得**自己再过一遍**（`/api/mc` 那道只管它自己），判据与用法完全一致。
    *
    * 🔴 只有 **web 模式且已开启**才服务（desktop 走自己的独立端口；关闭一律 404）：不留"以为关了其实还能访问"的口子。
    */
   const shareRoute = {
     kind: 'prefix',
-    path: '/api/whale-craft',
+    path: '/api/minecraft-bot',
     handler: async (req, res) => {
       if (!isTrustedRequest(req.headers, liveTrustedHosts())) {
         res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
@@ -1720,18 +1728,18 @@ export function apply(ctx, rawConfig) {
         }
         serveSharedFile(req, res, hit)
       } catch (e) {
-        ctx.logger?.warn?.(`[whale_craft] /api/whale-craft 处理失败：${e instanceof Error ? e.message : String(e)}`)
+        ctx.logger?.warn?.(`[dsh_minecraft_bot] /api/minecraft-bot 处理失败：${e instanceof Error ? e.message : String(e)}`)
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('internal error')
       }
     },
   }
-  ctx.effect(() => ctx.webServer.register(shareRoute), 'whale_craft: /api/whale-craft 路由（发布区）')
+  ctx.effect(() => ctx.webServer.register(shareRoute), 'dsh_minecraft_bot: /api/minecraft-bot 路由（发布区）')
 
-  // 启动自检标记：确认"插件到底加载了没"（同时写 whale-craft.log 与宿主日志）
+  // 启动自检标记：确认"插件到底加载了没"（同时写 minecraft-bot.log 与宿主日志）
   const startup = `插件已加载｜pid=${process.pid}｜每会话独立实例｜工具注册中…`
   logLine(startup)
-  ctx.logger?.info?.(`[whale_craft] ${startup}`)
+  ctx.logger?.info?.(`[dsh_minecraft_bot] ${startup}`)
 
   /* ─────────── 「遗言」网：未处理拒绝会要了整个 Harness 的命，至少把原因留下来 ───────────
    * 背景（2026-09-17 真机）：宿主的 `installFailLoud`（`apps/cli/src/profile-boot.ts:311` →
@@ -1769,13 +1777,13 @@ export function apply(ctx, rawConfig) {
    * MC 模式白名单里的**文件工具**（宿主 tool-fs / tool-fs-search 注册的名字）。
    *
    * 🔴 用户 2026-09-16："读写文件都只能在记忆文件夹内！" —— 这几个工具留在可见面上
-   *    （看地图、写 SVG、读回自己存的图都要用），但路径由 guard 硬限在 `<工作区>/.whale-craft/`。
+   *    （看地图、写 SVG、读回自己存的图都要用），但路径由 guard 硬限在 `<工作区>/.minecraft-bot/`。
    */
   const MC_FILE_TOOLS = ['read', 'write', 'edit', 'glob', 'grep', 'read_image']
 
   /**
    * MC 模式白名单里额外放行的**宿主工具**（按 `dev-docs/tools/dsh-tools.md` 标 `+` 的，2026-10-08）。
-   * 文件工具见 `MC_FILE_TOOLS`（它们会被 guard 限在 `.whale-craft/` 内）；这里是不走文件 jail 的那些：
+   * 文件工具见 `MC_FILE_TOOLS`（它们会被 guard 限在 `.minecraft-bot/` 内）；这里是不走文件 jail 的那些：
    * 后台任务（job_*）、目标（goal）、待办（todo_write）。子代理/联网/技能本版仍不开放。
    */
   const MC_EXTRA_HOST_TOOLS = ['job_list', 'job_output', 'job_kill', 'get_goal', 'create_goal', 'update_goal', 'todo_write']
@@ -1981,7 +1989,7 @@ export function apply(ctx, rawConfig) {
       // 把自己的游戏名学进叫法（默认叫法里**没有**私人名字 —— 见 learnName 的注释）
       try { wd.learnName(sess.bot?.bot?.username) } catch { /* 拿不到就算了 */ }
       if (wd.config.autoArm && !wd.armed) {
-        try { wd.arm() } catch (e) { ctx.logger?.warn?.(`[whale_craft] 看门狗自动挂载失败：${e.message}`) }
+        try { wd.arm() } catch (e) { ctx.logger?.warn?.(`[dsh_minecraft_bot] 看门狗自动挂载失败：${e.message}`) }
       }
       // 连接完成 → 返回 mc_status 的内容（用户 2026-10-05 定）
       return mcStatusPayload(sess)
@@ -2165,7 +2173,7 @@ export function apply(ctx, rawConfig) {
     async execute(args, exec) {
       const lib = libraryInfo()
       return {
-        plugin: { name: 'whale_craft', version: PLUGIN_VERSION, dir: fileURLToPath(new URL('.', import.meta.url)) },
+        plugin: { name: 'dsh_minecraft_bot', version: PLUGIN_VERSION, dir: fileURLToPath(new URL('.', import.meta.url)) },
         game: {
           testedVersions: lib.testedVersions,
           oldest: lib.oldest,
@@ -2211,7 +2219,7 @@ export function apply(ctx, rawConfig) {
         },
         prompt: {
           agentsMd: (() => { const r = memoryRootFor(workspaceOf(exec?.agent)); return r ? agentsMdPath(r) : null })(),
-          injectWhaleCraftAgentsMd: wsCfgValues(workspaceOf(exec?.agent)).injectWhaleCraftAgentsMd,
+          injectMinecraftBotAgentsMd: wsCfgValues(workspaceOf(exec?.agent)).injectMinecraftBotAgentsMd,
           injectWorkspaceAgentsMd: wsCfgValues(workspaceOf(exec?.agent)).injectWorkspaceAgentsMd,
         },
       }
@@ -2290,7 +2298,7 @@ export function apply(ctx, rawConfig) {
    * 工具输出布局（`mc_map` / `mc_height`，2026-10-05 用户定，将推广到其他工具）：
    *   · `reply`（默认 true）—— 结果**是否作为工具调用结果回复到上下文**；false 时只写文件、只回一行 stub。
    *   · `dist`（路径，可空）—— 把结果**写到文件**；空 = 不写文件。两者互不影响。
-   * 路径规则：**绝对路径照用**；**相对路径以工作区根为基准**（不是 `.whale-craft/`——要与其他工具一致，
+   * 路径规则：**绝对路径照用**；**相对路径以工作区根为基准**（不是 `.minecraft-bot/`——要与其他工具一致，
    * 且 MC+ 模式允许访问外界）。不再有默认输出目录。
    */
   const outputPathFor = (raw, agent) => {
@@ -2401,7 +2409,7 @@ export function apply(ctx, rawConfig) {
       + '`reply`（默认 true）= 结果是否回复到上下文；`dist` = 结果写到的文件路径（可空，写文件与 reply 互不影响）。'
       + '路径：绝对照用，相对以**工作区根**为基准。字符图存 .txt、图像存 .png。'
       + '网格方向**上北下南 · 左西右东**。'
-      + `要让 **Master** 看到图：先 dist 写到发布区（\`.whale-craft/${EXPRESS_DIR}/<子目录>/x.png\`），再用 \`mc_kit_express\` 取链接。`,
+      + `要让 **Master** 看到图：先 dist 写到发布区（\`.minecraft-bot/${EXPRESS_DIR}/<子目录>/x.png\`），再用 \`mc_kit_express\` 取链接。`,
     parameters: {
       radius: { type: 'number', description: '半径（默认 32，上限 96）' },
       glyphStep: { type: 'number', description: '字符图抽稀步长（默认 2；1 最细）' },
@@ -2967,8 +2975,8 @@ export function apply(ctx, rawConfig) {
       + '· render  SVG → PNG（可给 width/height/scale；svg 文本或 svgPath 二选一）\n'
       + '· grid    把多张图按网格拼成**可继续编辑的 SVG 文本**（省掉重复写 N 个 <image> 和算坐标）\n'
       + '· save    把 SVG 文本或 PNG 字节落盘\n'
-      + `输出默认落在 \`.whale-craft/${OUT_DIR}/\`（**不对外**）。要给用户看，就把 \`out\` 写成`
-      + `\`.whale-craft/${EXPRESS_DIR}/<子目录>/x.png\`（**发布区**），再用 \`mc_kit_express\` 取那一行。`,
+      + `输出默认落在 \`.minecraft-bot/${OUT_DIR}/\`（**不对外**）。要给用户看，就把 \`out\` 写成`
+      + `\`.minecraft-bot/${EXPRESS_DIR}/<子目录>/x.png\`（**发布区**），再用 \`mc_kit_express\` 取那一行。`,
     parameters: {
       action: { type: 'string', description: 'info / embed / render / grid / save' },
       path: { type: 'string', description: '输入文件（info/embed 用）' },
@@ -2995,12 +3003,12 @@ export function apply(ctx, rawConfig) {
       }
       const action = String(args.action ?? '').toLowerCase()
       /**
-       * 输出路径。默认落在**记忆夹的 `.out/`**（`.whale-craft/.out/`，**不对外**）。
+       * 输出路径。默认落在**记忆夹的 `.out/`**（`.minecraft-bot/.out/`，**不对外**）。
        *
        * 🔴 用户 2026-09-16 定的**发布模型**：
        *    · `.out/` = 默认输出，**谁都访问不到**；
        *    · `.express/` = **发布区**，放进去的文件可通过
-       *      `GET /api/mc/whale-craft/<工作区目录名>/<剩余路径>` 访问 —— 要给用户看就显式写进这里，
+       *      `GET /api/mc/minecraft-bot/<工作区目录名>/<剩余路径>` 访问 —— 要给用户看就显式写进这里，
        *      再用专用工具 `mc_kit_express` 换回那行路径，自己拼 markdown。
        */
       const outDir = outRootOf(memoryRootFor(workspaceOf(exec?.agent)))
@@ -3070,23 +3078,23 @@ export function apply(ctx, rawConfig) {
   /**
    * 发布区取链接：**唯一**的"把文件端给用户"的入口（用户 2026-09-16 定）。
    *
-   * 只做一件事：把 `.whale-craft/.express/` 下的文件换成**给用户用的那一行**，
+   * 只做一件事：把 `.minecraft-bot/.express/` 下的文件换成**给用户用的那一行**，
    * 剩下的 markdown 由 AI 自己拼（`![名](url)` / `[名](url)`）——不再往别的工具返回值里塞字段。
    *
    * 🔴 **回什么由「文件分享」开关决定，且按宿主模式分两套**（用户 2026-09-17 定、2026-10-04 改开关、2026-10-07 按模式拆键）：
    *   · 关（默认）→ 恒回一句"文件分享已关闭…"，服务也不开（AI 只能把绝对路径告诉用户）；
-   *   · web 模式开 → 回 `base + /api/whale-craft/express/<uuid>/<rel>` 的**完整 URL**；
+   *   · web 模式开 → 回 `base + /api/minecraft-bot/express/<uuid>/<rel>` 的**完整 URL**；
    *   · desktop 模式开 → 回 `http://localhost:<port>/<uuid>/<rel>`；端口服务没起来则回占用文案。
    * 各模式都仍然**只认发布区**（`.express/`）里的文件。
    */
   ctx.tools.register(asTool({
     name: 'mc_kit_express',
     description: '获取分享区中文件的完整分享URL。\n'
-      + '要给用户分享图片或其他文件，先将要分享的文件放在工作区 `.whale-craft/.express/` 下，然后调用本工具传入文件路径，本工具会返回该文件用户可达的**完整**URL。该URL即可用于回报用户，无需再补充协议或域名。\n'
+      + '要给用户分享图片或其他文件，先将要分享的文件放在工作区 `.minecraft-bot/.express/` 下，然后调用本工具传入文件路径，本工具会返回该文件用户可达的**完整**URL。该URL即可用于回报用户，无需再补充协议或域名。\n'
       + '如果要分享的文件是图片，期望在回复中内嵌展示出来，回复 `![图片名](url)` 即可。其他文件，或期望是可以下载的URL，回复 `[文件名](url)` 即可。\n'
-      + '本工具只用于生成URL。只要用户开启分享功能，`.whale-craft/.express/` 下的文件都会分享出去。如果用户没有开启分享功能，调用本工具会有相应报错。如果用户反映仍然无法看到图片或访问文件，且你的操作并无问题，提醒用户去「MC设置 → 文件分享」检查配置（web 模式看 base，桌面模式看端口）。',
+      + '本工具只用于生成URL。只要用户开启分享功能，`.minecraft-bot/.express/` 下的文件都会分享出去。如果用户没有开启分享功能，调用本工具会有相应报错。如果用户反映仍然无法看到图片或访问文件，且你的操作并无问题，提醒用户去「MC设置 → 文件分享」检查配置（web 模式看 base，桌面模式看端口）。',
     parameters: {
-      path: { type: 'string', required: true, description: '发布区下的文件路径（工作区相对或绝对；必须在 .whale-craft/.express/ 下）' },
+      path: { type: 'string', required: true, description: '发布区下的文件路径（工作区相对或绝对；必须在 .minecraft-bot/.express/ 下）' },
     },
     output: {
       schema: { type: 'object', properties: { url: { type: 'string' }, enabled: { type: 'boolean' } }, additionalProperties: true },
@@ -3100,7 +3108,7 @@ export function apply(ctx, rawConfig) {
       const raw = String(args.path ?? '').trim()
       if (!raw) throw new Error('path 不能为空')
       // 解析顺序：绝对路径照用；相对路径先按**记忆根**试（`.express/x.png` 这种写法最常见），
-      // 再按**工作区**试（`.whale-craft/.express/x.png`）。都不存在才算文件不存在。
+      // 再按**工作区**试（`.minecraft-bot/.express/x.png`）。都不存在才算文件不存在。
       const candidates = isAbsolute(raw)
         ? [resolve(raw)]
         : [resolve(memRoot, raw), resolve(cwd ?? memRoot, raw)]
@@ -3118,7 +3126,7 @@ export function apply(ctx, rawConfig) {
       const ref = expressRefFor(abs, memRoot, wsId)
       if (!ref) {
         throw new Error('这个文件不在发布区里，所以没有可分享的地址。'
-          + `请先把它放到 .whale-craft/${EXPRESS_DIR}/<子目录>/ 下（出图时把 out 写成那里，`
+          + `请先把它放到 .minecraft-bot/${EXPRESS_DIR}/<子目录>/ 下（出图时把 out 写成那里，`
           + '或用写文件工具把文件放进去），再来取。')
       }
       // 关闭（默认）：恒回那一句（**不抛错** —— 让 AI 直接把话转达用户，而不是去试别的歪招）
@@ -3146,7 +3154,7 @@ export function apply(ctx, rawConfig) {
    *    · `to` 以分隔符结尾 = 放进该目录（不存在自动建）；否则作为目标名（已是目录则合并进去）；
    *      `from` 用了通配符时 `to` 必须以分隔符结尾；目标父目录自动创建；
    *    · `overwrite=false` 默认：目标已存在 → 报错；`true` 才覆盖；
-   *    · 沙箱按模式：**MC 模式**只能碰 `.whale-craft/`（与宿主文件工具同一把锁）；
+   *    · 沙箱按模式：**MC 模式**只能碰 `.minecraft-bot/`（与宿主文件工具同一把锁）；
    *      **MC+ 模式**放工作区；相对路径一律以**工作区根**为基准；根目录本身不能被移动/删除选中；
    *    · 受保护文件（RULES.md/AGENTS.md/config.json）与凭据路径**不可删改**。
    * 🔴 **失败在动手前停止**：先把每件事算成 plan 做完全部预检，全过才执行（零副作用）；
@@ -3381,8 +3389,8 @@ export function apply(ctx, rawConfig) {
   /* ── 长期记忆：专用工具与索引自动注入**均已移除**，全靠 agent 自行用宿主文件工具 ──
    * 2026-10-07：用户先决定移除 `mc_kit_memory` 工具（与宿主受限文件工具功能重叠），
    * 随后又要求**去掉 README 索引的自动注入**。现在长期记忆完全交给 agent 自己：
-   * 用宿主文件工具（read/write/edit/glob/grep/read_image）直接读写工作区 `.whale-craft/`。
-   * 只保留**目录约定本身**：固定 `<工作区>/.whale-craft/`、`README.md` 作为人工维护的索引
+   * 用宿主文件工具（read/write/edit/glob/grep/read_image）直接读写工作区 `.minecraft-bot/`。
+   * 只保留**目录约定本身**：固定 `<工作区>/.minecraft-bot/`、`README.md` 作为人工维护的索引
    * （agent 按 RULES.md 的指示自行阅读/维护）——插件**不再**往上下文里注入它。
    * ⚠️ 已知缺口：宿主暂无删文件工具、也无二进制 `put`（等宿主补，插件不另造）。
    * ------------------------------------------------------------------------ */
@@ -3414,7 +3422,7 @@ export function apply(ctx, rawConfig) {
   const ensureAgentsMdFile = (dir) => {
     const p = agentsMdPath(dir)
     try {
-      // 先把老名字（`.whale-craft/AGENTS.md`）迁走 —— 只要那个文件名还在，宿主就会把它
+      // 先把老名字（`.minecraft-bot/AGENTS.md`）迁走 —— 只要那个文件名还在，宿主就会把它
       // 当"工作区指令"注入任何碰过本目录的会话（含非 MC 会话），而我们的开关关不掉它。
       const mig = migrateLegacyAgentsMd(dir)
       if (mig.migrated) logLine(`行事准则已改名迁移：${legacyAgentsMdPath(dir)} → ${p}（老文件备份为 ${mig.backup}）`)
@@ -3431,7 +3439,7 @@ export function apply(ctx, rawConfig) {
    *
    * 投两到三条（各一条插件提示行）：
    *    ① `<工作区>/AGENTS.md`（开关 `injectWorkspaceAgentsMd`）—— 用户要求先投它
-   *    ② `<工作区>/.whale-craft/RULES.md`（开关 `injectWhaleCraftAgentsMd`）
+   *    ② `<工作区>/.minecraft-bot/RULES.md`（开关 `injectMinecraftBotAgentsMd`）
    *    ③ 版本硬提示词（无开关；见 src/version-prompt.mjs）
    *
    * 🔴 为什么走这条路：宿主注入工作区 `AGENTS.md` **不用 systemPrompt** ——
@@ -3440,11 +3448,11 @@ export function apply(ctx, rawConfig) {
    *    `includeRuntimeContext:false` 压不到它）；② **看得见**（对话里一行折叠提示）。
    *
    * 用户 2026-09-16 的要求（照做，**不多做**）：
-   *    · **不加新开关** —— 就用设置里那两个：`injectWhaleCraftAgentsMd` / `injectWorkspaceAgentsMd`；
+   *    · **不加新开关** —— 就用设置里那两个：`injectMinecraftBotAgentsMd` / `injectWorkspaceAgentsMd`；
    *    · 两个都开时**先投工作区的，再投我们自己的**；
    *    · 每条都要让人**和 AI**一眼看出是哪个文件：折叠标题与正文首行都带**相对路径**
-   *      （`AGENTS.md` 与 `.whale-craft/AGENTS.md` 是两回事）；
-   *    · `source` 写死 `{kind:'plugin:whale_craft', form:'notice'}`（v4 规范值）→ 插件提示行，不归到用户头上；
+   *      （`AGENTS.md` 与 `.minecraft-bot/AGENTS.md` 是两回事）；
+   *    · `source` 写死 `{kind:'plugin:dsh_minecraft_bot', form:'notice'}`（v4 规范值）→ 插件提示行，不归到用户头上；
    *    · **不做 steer 兜底**（steer 空闲会"起一轮"＝没问就替用户说话）。
    */
   /**
@@ -3483,9 +3491,9 @@ export function apply(ctx, rawConfig) {
     return l
   }
 
-  /** 这条（会话日志里的）消息是不是**我们**（whale_craft）投的插件提示行
+  /** 这条（会话日志里的）消息是不是**我们**（dsh_minecraft_bot）投的插件提示行
    *  —— 认 `kind` 的 **v4 规范值**（回读日志用的判据，与投递侧同一口径；见 user-message.mjs 头注释） */
-  const isOurNotice = (m) => String(m?.source?.kind ?? '') === 'plugin:whale_craft' && m?.source?.form === 'notice'
+  const isOurNotice = (m) => String(m?.source?.kind ?? '') === 'plugin:dsh_minecraft_bot' && m?.source?.form === 'notice'
 
   /** 提示行正文里"它出自哪个文件"（首行 `Instructions from: <rel>`），取不到就 null */
   const noticeRelOf = (m) => {
@@ -3628,14 +3636,14 @@ export function apply(ctx, rawConfig) {
         if (t) items.push({ rel: 'AGENTS.md', title: '提示词注入：AGENTS.md', text: t })
       } catch { /* 读不到就当没有 */ }
     }
-    if (wsSwitches.injectWhaleCraftAgentsMd === true) {
+    if (wsSwitches.injectMinecraftBotAgentsMd === true) {
       const root = memoryRootFor(cwd)
       ensureAgentsMdFile(root)
       const cur = readAgentsMd(root)
       items.push({
-        rel: '.whale-craft/RULES.md',
-        title: '提示词注入：.whale-craft/RULES.md',
-        text: `【Whale Craft 行事准则（${cur.source === 'custom' ? 'Master 自定义版' : '默认版'}）】\n\n${cur.text.trim()}`,
+        rel: '.minecraft-bot/RULES.md',
+        title: '提示词注入：.minecraft-bot/RULES.md',
+        text: `【Minecraft Bot 行事准则（${cur.source === 'custom' ? 'Master 自定义版' : '默认版'}）】\n\n${cur.text.trim()}`,
       })
     }
     // ③ **版本硬提示词**（随插件版本发布、硬编码、不给开关）：紧跟行事准则之后，
@@ -3693,9 +3701,9 @@ export function apply(ctx, rawConfig) {
    */
   const noticeMessagesFor = (todo) => todo.map((it) => userMessage({
     content: [{ type: 'text', text: `Instructions from: ${it.rel}\n\n${it.text}` }],
-    // source.kind 用 **v4 规范值** `plugin:whale_craft`（v4 会话格式**拒绝**裸露的 'plugin'；
+    // source.kind 用 **v4 规范值** `plugin:dsh_minecraft_bot`（v4 会话格式**拒绝**裸露的 'plugin'；
     // 宿主 createUserMessage 对 source 原样透传、不会替我们修正）—— 见 src/user-message.mjs 头注释
-    source: { kind: 'plugin:whale_craft', form: 'notice', summary: it.title },
+    source: { kind: 'plugin:dsh_minecraft_bot', form: 'notice', summary: it.title },
   }))
 
   /** 记一笔台账（投出去的那些文件名 + 正文，供诊断与"内容变了就地更新"） */
@@ -3789,7 +3797,7 @@ export function apply(ctx, rawConfig) {
   /** 所有可能被投递的文件名（回读日志时用来匹配） */
   const noticeRelCandidates = () => [
     'AGENTS.md',
-    '.whale-craft/RULES.md',
+    '.minecraft-bot/RULES.md',
     versionPromptSource(PLUGIN_VERSION),
   ]
 
@@ -3809,7 +3817,7 @@ export function apply(ctx, rawConfig) {
     const cur = root ? readAgentsMd(root) : null
     const agentsFile = root ? agentsMdPath(root) : null
     const wsSw = wsCfgValues(cwd)
-    const injectWc = wsSw.injectWhaleCraftAgentsMd === true
+    const injectWc = wsSw.injectMinecraftBotAgentsMd === true
     const injectWs = wsSw.injectWorkspaceAgentsMd === true
     const wsExists = Boolean(wsAgents) && existsSync(wsAgents)
     const presetId = (agent && lastPresetSeen.get(agent)) ?? null
@@ -3825,7 +3833,7 @@ export function apply(ctx, rawConfig) {
       mcPlus,
       presetId,
       workspace: cwd ?? null,
-      switches: { injectWhaleCraftAgentsMd: injectWc, injectWorkspaceAgentsMd: injectWs },
+      switches: { injectMinecraftBotAgentsMd: injectWc, injectWorkspaceAgentsMd: injectWs },
       files: {
         agentsMd: agentsFile
           ? { path: agentsFile, exists: existsSync(agentsFile), source: cur?.source ?? null, bytes: cur ? Buffer.byteLength(cur.text) : 0 }
@@ -3844,14 +3852,14 @@ export function apply(ctx, rawConfig) {
       },
       // 保留 registered/segments 两个键名（前端与 mc_diag 在用）：现在两者同源 —— 都是"真的投了"
       registered: {
-        'agents-md': sent.includes('.whale-craft/RULES.md'),
+        'agents-md': sent.includes('.minecraft-bot/RULES.md'),
         'workspace-agents-md': sent.includes('AGENTS.md'),
-        'version-prompt': sent.some((r) => String(r).startsWith('whale_craft@')),
+        'version-prompt': sent.some((r) => String(r).startsWith('dsh_minecraft_bot@')),
       },
       segments: {
-        'agents-md': sent.includes('.whale-craft/RULES.md'),
+        'agents-md': sent.includes('.minecraft-bot/RULES.md'),
         'workspace-agents-md': sent.includes('AGENTS.md'),
-        'version-prompt': sent.some((r) => String(r).startsWith('whale_craft@')),
+        'version-prompt': sent.some((r) => String(r).startsWith('dsh_minecraft_bot@')),
       },
       // ⚠️ 这里只留**用户看不出来、又真的影响投递**的原因。
       //    "还没到投递时机 / 开关是关的" 这种**不用提示**（用户 2026-09-18：多余）——
@@ -3868,7 +3876,7 @@ export function apply(ctx, rawConfig) {
   }
 
   /**
-   * 在**选中工作区**里备好 `.whale-craft/`（缺 README.md / RULES.md 就补默认）。
+   * 在**选中工作区**里备好 `.minecraft-bot/`（缺 README.md / RULES.md 就补默认）。
    *
    * 🔴 用户 2026-09-16 定的**时机**：**不是**启动时对每个会话建，只在两个时刻建：
    *    ① **首次发起 MC 模式会话**（`applyMcModePolicy` 跑的时候）
@@ -3915,7 +3923,7 @@ export function apply(ctx, rawConfig) {
    * `mcModePresets` 里。然后做三件事：
    *   ① 工具可见性：对这个 agent 挂 `tools.restrict`（隐藏 mc_admin_*，以及配置的白/黑名单）
    *   ② 工具执行：注册**全局 guard** 硬拒 mc_admin_*（即使隐藏失效也调不动）
-   *   ③ 提示词：注入 whale_craft 专属指导（宿主的 AGENTS.md 注入之外，另加这一段）
+   *   ③ 提示词：注入 dsh_minecraft_bot 专属指导（宿主的 AGENTS.md 注入之外，另加这一段）
    * ------------------------------------------------------------------------ */
 
   /** 自动创建 preset 时的显示名（preset.yml 里的 `name:`） */
@@ -3936,7 +3944,7 @@ export function apply(ctx, rawConfig) {
    *    新宿主（0.2.0-rc.2+）的人设由 `presets/minecraft.patch.yml` 的 `persona.config` 声明 ——
    *    那句才是权威，这里必须逐字对齐（改一处要一起改；可读版见 dev-docs/prompt/mc_mode_persona.md）。
    *
-   * 只写**身份 + 能力**；规矩全在 `.whale-craft/RULES.md`，不重复。
+   * 只写**身份 + 能力**；规矩全在 `.minecraft-bot/RULES.md`，不重复。
    * 系统提示词**由宿主按 preset 自动注入**，插件不往 systemPrompt 里塞（用户要求）。
    */
   const MC_PERSONA_TEXT = '你是一个 Minecraft Java 版游戏助理，由模型 {{model}} 驱动。你可以通过工具调用，使用无头机器人进入 MC 服务器中与世界和玩家互动。你应当专注于 MC 游戏，不过问交互原理和插件代码，除非收到明确调试指令。'
@@ -4040,9 +4048,9 @@ export function apply(ctx, rawConfig) {
    *
    * 🔴 2026-09-24：这条路会动**用户自己写的** composition（本机那份 `minecraft` 就是用户手写的），
    *    所以：
-   *      ① 动之前**留一份原始副本**（`agent.cordis.yml.bak-whale-craft`，只留第一次那一份，
+   *      ① 动之前**留一份原始副本**（`agent.cordis.yml.bak-minecraft-bot`，只留第一次那一份，
    *         之后不覆盖 ⇒ 那份永远是"插件碰它之前"的样子，随时能翻回去）；
-   *      ② 隔离实例里**一律不写**（`WHALE_CRAFT_NO_PRESET_WRITE`）—— 隔离实例的 preset 根目录
+   *      ② 隔离实例里**一律不写**（`MCBOT_NO_PRESET_WRITE`）—— 隔离实例的 preset 根目录
    *         跟生产是**同一个**（`~/.dsh/.agent-presets`，redirect 不了），写下去就是改生产文件。
    *         2026-09-24 实测踩到：隔离实例第一次跑就把压缩组加进了用户手写的那份。
    */
@@ -4057,16 +4065,16 @@ export function apply(ctx, rawConfig) {
       const cur = readFileSync(p, 'utf8')
       const next = patchToolGroupsIntoComposition(cur, groups)
       if (next === null) return false
-      if (process.env.WHALE_CRAFT_NO_PRESET_WRITE) {
-        logLine(`隔离模式（WHALE_CRAFT_NO_PRESET_WRITE）：跳过改 preset「${id}」的 composition（本该补：${groups.filter((g) => !cur.includes(g.pkg)).map((g) => g.pkg).join(', ')}）`)
+      if (process.env.MCBOT_NO_PRESET_WRITE) {
+        logLine(`隔离模式（MCBOT_NO_PRESET_WRITE）：跳过改 preset「${id}」的 composition（本该补：${groups.filter((g) => !cur.includes(g.pkg)).map((g) => g.pkg).join(', ')}）`)
         return false
       }
       try {
-        const bak = join(dir, 'agent.cordis.yml.bak-whale-craft')
+        const bak = join(dir, 'agent.cordis.yml.bak-minecraft-bot')
         if (!existsSync(bak)) copyFileSync(p, bak)
       } catch { /* 备份失败不拦着修，但下面日志里会说 */ }
       writeFileSync(p, next, 'utf8')
-      logLine(`已给 MC 模式 preset（${id}）补上工具组：${groups.filter((g) => !cur.includes(g.pkg)).map((g) => g.pkg).join(', ')}（原始副本：agent.cordis.yml.bak-whale-craft）`)
+      logLine(`已给 MC 模式 preset（${id}）补上工具组：${groups.filter((g) => !cur.includes(g.pkg)).map((g) => g.pkg).join(', ')}（原始副本：agent.cordis.yml.bak-minecraft-bot）`)
       return true
     } catch (e) { logLine(`补 preset 工具组失败（不影响挂载）：${e.message}`); return false }
   }
@@ -4115,13 +4123,13 @@ export function apply(ctx, rawConfig) {
    * 文件名故意带 `.json` 与点前缀 —— preset id 规则 `/^[a-z0-9][a-z0-9-]*$/` 不含点，
    * 所以它在 discovery 眼里根本不是 preset 槽位。
    */
-  const MC_PRESET_MARKER = '.whale-craft.json'
+  const MC_PRESET_MARKER = '.minecraft-bot.json'
   const writeMcPresetMarker = (svc, id, { source, composition }) => {
     try {
       const dir = mcPresetDir(svc, id)
       if (!dir || !existsSync(dir)) return false
       writeFileSync(join(dir, MC_PRESET_MARKER), JSON.stringify({
-        createdBy: 'whale_craft',
+        createdBy: 'dsh_minecraft_bot',
         spec: MC_PRESET_SPEC,
         at: new Date().toISOString(),
         source: source ?? null,
@@ -4271,7 +4279,7 @@ export function apply(ctx, rawConfig) {
       }
 
       // preset id 必须是目录名（宿主 `PRESET_ID = /^[a-z0-9][a-z0-9-]*$/`）——
-      // 所以默认名单里的 `whale_craft`（下划线）**永远不可能是 preset id**，只能建 `minecraft` 这种。
+      // 所以默认名单里的 `dsh_minecraft_bot`（下划线）**永远不可能是 preset id**，只能建 `minecraft` 这种。
       const target = pickPresetTarget(wanted)
       if (!target) {
         logLine(`没找到 MC 模式 preset，而 mcModePresets 里没有**合法**的 preset id（${wanted.join(' / ')}）→ 跳过`)
@@ -4354,7 +4362,7 @@ export function apply(ctx, rawConfig) {
 
   /* 🔴 2026-09-16：这里原来有一段"麦块模式专属指导"（通过系统提示注入）。
    * 用户要求**删掉显式注入**，而且它的内容（单对话 / 记忆 / 看门狗 / 指令是最后手段 / 别乱挖乱建）
-   * 已经全部写在 `.whale-craft/AGENTS.md`（Master 亲自给的那版）里 —— 留着就是重复。 */
+   * 已经全部写在 `.minecraft-bot/AGENTS.md`（Master 亲自给的那版）里 —— 留着就是重复。 */
 
   /**
    * 这个 agent 当前套用的**工具曝光策略**（'mc' / 'mc-plus' / 'other'；没套过 = 不存在）。
@@ -4403,11 +4411,11 @@ export function apply(ctx, rawConfig) {
     const isMc = pluginConfig.isMcModePreset(id)
     const isPlus = pluginConfig.isMcPlusPreset(id)
     // 🔴 用户 2026-09-16："如果没有选中工作区，则拒绝发起 MC 模式会话和设置。"
-    //    没有工作区 → `.whale-craft/`（记忆 + 提示词）无处安放 → 不当成 MC 会话：
+    //    没有工作区 → `.minecraft-bot/`（记忆 + 提示词）无处安放 → 不当成 MC 会话：
     //    不套隔离、不注入专属提示词、前端也会隐藏「MC设置」入口（/api/mc/mode 会带 reason）。
     if (isMc && !workspaceOf(agent)) {
       if (agent.id) noWorkspaceRefused.add(String(agent.id))
-      logLine(`拒绝启用 MC 模式：这个会话没有选中工作区（.whale-craft 与提示词要建在工作区里）`)
+      logLine(`拒绝启用 MC 模式：这个会话没有选中工作区（.minecraft-bot 与提示词要建在工作区里）`)
       return
     }
     if (agent.id) noWorkspaceRefused.delete(String(agent.id))
@@ -4443,7 +4451,7 @@ export function apply(ctx, rawConfig) {
       if (isPlus) mcPlusAgentIds.add(String(agent.id))
       else mcPlusAgentIds.delete(String(agent.id))
     }
-    ensureMemoryRoot(agent)        // ← 首次发起 MC 模式会话 = 建 `.whale-craft/`（README / RULES.md）的时机
+    ensureMemoryRoot(agent)        // ← 首次发起 MC 模式会话 = 建 `.minecraft-bot/`（README / RULES.md）的时机
     // 🔴 2026-09-18：**这里不再投提示词**。投递搬到"每个请求组装之前"（`agent/pre-step` → `reconcileNotices`），
     //    因为模式在第一次请求之前还可能被改（宿主允许空白期反复切 preset）。
     //    这条日志只是"模式已生效"的标记；真投出去时 `reconcileNotices` 自己会记一行。
@@ -4471,7 +4479,7 @@ export function apply(ctx, rawConfig) {
     // 🔴 以前是"allowOtherTools 非空才走白名单"——默认为空 ⇒ 只 deny 了我们自己的管理工具，
     //    宿主那一堆工具（pwsh / subagent / workflow / serve_* / web_* …）**全都还在**。
     //    那不是"隔离"，只是"藏了自家两个工具"。现在**无条件白名单**：
-    //      我们自己的非管理工具（mc_* / mc_kit_*）+ **文件工具**（会被 guard 限在 .whale-craft/ 内）
+    //      我们自己的非管理工具（mc_* / mc_kit_*）+ **文件工具**（会被 guard 限在 .minecraft-bot/ 内）
     //      + **后台任务 / 目标 / 待办**（MC_EXTRA_HOST_TOOLS）+ 配置里额外允许的其它工具。
     try {
       const t = scopedTools(agent.ctx)
@@ -4569,7 +4577,7 @@ export function apply(ctx, rawConfig) {
 
   // ③ 硬保证（不管可见性怎样）：按模式分档的**调用级兜底**。
   //
-  //    · MC 模式：管理工具调不动 + 文件工具只能碰 `<工作区>/.whale-craft/` + 受保护文件只读；
+  //    · MC 模式：管理工具调不动 + 文件工具只能碰 `<工作区>/.minecraft-bot/` + 受保护文件只读；
   //    · MC+ 模式：只保留凭据路径拒绝（文件全工作区、admin 可见——用户 2026-10-04 定）；
   //    · 其它模式：拒调 mc_* / mc_kit_*（mc_admin_* 例外）——"不再给其他模式暴露 mc 和 mckit
   //      工具"的硬保证，与可见性 deny 双保险（restrict 没套上时也调不动）。
@@ -4624,7 +4632,7 @@ export function apply(ctx, rawConfig) {
       // ── 以下只对 MC 模式生效 ──────────────────────────────────────────────
       // ② 管理工具：MC 模式一律拒绝（隐藏之外再上一道硬锁）
       if (name.startsWith('mc_admin_')) {
-        return 'MC 模式会话不能读取或修改 whale_craft 配置——请在普通会话里用 mc_admin_config 改。'
+        return 'MC 模式会话不能读取或修改 dsh_minecraft_bot 配置——请在普通会话里用 mc_admin_config 改。'
       }
 
       // ②′ 调试工具：开关没开就硬拒（防 restrict 没套上；用户 2026-10-05）
@@ -4640,8 +4648,8 @@ export function apply(ctx, rawConfig) {
       if (/^(read|edit|write|glob|grep|ls|cat|read_image)$/i.test(name)) {
         // 受保护文件（RULES.md / AGENTS.md / config.json，src/protected.mjs）：**可读不可写**。
         // 宿主文件工具里只有 write|edit 会写。
-        // 判定 = 路径写法命中（裸名/含 .whale-craft 段）**或**解析到记忆根后正好是那个文件
-        // （绝对路径不一定含 `.whale-craft` 段也照样判定）。
+        // 判定 = 路径写法命中（裸名/含 .minecraft-bot 段）**或**解析到记忆根后正好是那个文件
+        // （绝对路径不一定含 `.minecraft-bot` 段也照样判定）。
         const protectedHit = (raw) => {
           const p = String(raw ?? '').trim()
           if (!p) return false
@@ -4658,14 +4666,14 @@ export function apply(ctx, rawConfig) {
 
       // ③ 🔴 用户 2026-09-16："读写文件都只能在记忆文件夹内！"
       //    文件工具（read/write/edit/read_image/glob/grep）的路径一律解析到
-      //    `<工作区>/.whale-craft/` 之内；**没给路径也算越界**（glob/grep 不给路径 = 扫整个工作区）。
+      //    `<工作区>/.minecraft-bot/` 之内；**没给路径也算越界**（glob/grep 不给路径 = 扫整个工作区）。
       const raw = fileToolPath(exec)
       if (raw !== null) {
         const root = memoryRootFor(workspaceOf(exec?.agent))
         if (!root) return '这个会话没有工作区——MC 模式的文件工具没有可用的记忆文件夹，已拒绝。'
         const rel = String(raw ?? '').trim()
         if (!rel) {
-          return `MC 模式的文件工具只能在记忆文件夹（${root}）里用——请显式给 .whale-craft/ 内的路径。`
+          return `MC 模式的文件工具只能在记忆文件夹（${root}）里用——请显式给 .minecraft-bot/ 内的路径。`
         }
         const abs = resolve(root, rel)
         const rk = pk(root); const ak = pk(abs); const prefix = rk.endsWith(sep) ? rk : rk + sep
@@ -4705,7 +4713,7 @@ export function apply(ctx, rawConfig) {
         }
       }
 
-      // ④ `present`：**只能交付本会话工作区内的文件**（`.whale-craft/` 与 `out/` 都在里面）。
+      // ④ `present`：**只能交付本会话工作区内的文件**（`.minecraft-bot/` 与 `out/` 都在里面）。
       //    宿主自己也要求"文件已存在且在工作区里"，这里只是把边界说清、给可读的拒绝理由。
       const delivering = presentPaths(exec)
       if (delivering !== null) {
@@ -4733,7 +4741,7 @@ export function apply(ctx, rawConfig) {
     const handlers = []
     const touch = (agent) => {
       if (!agent?.ctx) return
-      // ⚠️ 这里**不再**建 `.whale-craft/` —— 建文件只发生在"首次发起 MC 模式会话"
+      // ⚠️ 这里**不再**建 `.minecraft-bot/` —— 建文件只发生在"首次发起 MC 模式会话"
       //    （applyMcModePolicy 里）和"点开 MC设置"（HTTP 接口里）这两个时机（用户 2026-09-16 定）。
       try {
         // 🔴 2026-09-17：**两个方向都要处理** —— 是 MC 模式（含 MC+）就套用，**不是就切到非 MC 档**。
@@ -4780,7 +4788,7 @@ export function apply(ctx, rawConfig) {
      *    监听器的返回值 ⇒ 恒定 `undefined` ⇒ 宿主 `agent-loop` 下一行 `decision.kind` 直接
      *    `TypeError: Cannot read properties of undefined (reading 'kind')`。
      *    **后果是 P0 级**：`turn/start` 之后、`step/start` 之前就抛，**任意会话、任意模式、每一轮**都失败，
-     *    装了插件就没法对话（真机 `whale_craft@0.1.4`，标准模式与 MC 模式一视同仁）。
+     *    装了插件就没法对话（真机 `dsh_minecraft_bot@0.1.4`，标准模式与 MC 模式一视同仁）。
      *
      *    正确写法（宿主自己的 `agent-instructions` 就是这么写的）：接第二个形参 `next` 并交棒，
      *    然后**用交棒拿回的结果做改写**（见下面 `enterWithNotices`）。
@@ -4802,13 +4810,13 @@ export function apply(ctx, rawConfig) {
       }))
     } catch { /* 老宿主没有这条瀑布 */ }
     return () => { for (const off of handlers) { try { off?.() } catch {} } }
-  }, 'whale_craft: mc-mode policy')
+  }, 'dsh_minecraft_bot: mc-mode policy')
 
   /* ── 管理工具：只有**非 MC 模式**会话能用（MC 模式看不见 + 调了被 guard 拒）── */
 
   ctx.tools.register(asTool({
     name: 'mc_admin_config',
-    description: '【管理】读写 whale_craft 的**全局配置**（服务器指令白名单、MC 模式的工具暴露、记忆目录…）。\n'
+    description: '【管理】读写 dsh_minecraft_bot 的**全局配置**（服务器指令白名单、MC 模式的工具暴露、记忆目录…）。\n'
       + '⚠️ **MC 模式会话看不见、也调不动它**（要改配置就在普通会话或 MC+模式 里改）。\n'
       + 'action：\n'
       + '· get（默认）看生效配置；给 path 只看某一项\n'
@@ -4825,7 +4833,7 @@ export function apply(ctx, rawConfig) {
       + '`*.example.com` 通配、`/正则/`、`*` 全部）/ `allowAllFetchDomains`（允许所有域名，默认 false）/ '
       + '`webFetchAllowHtml`、`webFetchAllowText`、`webFetchAllowImage`（允许的内容类型：网页 HTML / 文本 / 图片，'
       + '默认都 true；前两类受宿主限制只能粗到那两档，图片格式是**内置**的常见安全名单、不可配）。\n'
-      + '改完**立即生效**，落在 `$DSH_HOME/whale_craft/config.json`。（白名单只能"收窄"，不能凭空添加 preset 没挂的工具。）',
+      + '改完**立即生效**，落在 `$DSH_HOME/dsh_minecraft_bot/config.json`。（白名单只能"收窄"，不能凭空添加 preset 没挂的工具。）',
     parameters: {
       action: { type: 'string', description: 'get（默认）/ set / unset / reset / list' },
       path: { type: 'string', description: '配置项点号路径，如 commandWhitelist 或 mcMode.allowOtherTools' },
@@ -4858,7 +4866,7 @@ export function apply(ctx, rawConfig) {
    * 需求 6 的另一半："其他 Agent 要保留为它做扩展、写 Agent 的能力"。
    * 任何 .mjs 导出 `apply(api)` 即可；api 里给了 asTool / getSession / registry /
    * memory / ctx / config。这样别的会话可以给它加能力而**不用改这个文件**。
-   * 说明文档：whale_craft/extensions/README.md
+   * 说明文档：dsh_minecraft_bot/extensions/README.md
    * ------------------------------------------------------------------------ */
 
   ctx.effect(() => {
@@ -4875,15 +4883,15 @@ export function apply(ctx, rawConfig) {
             await mod.apply({ ctx, config, registry, asTool, getSession, ensureWatchdog, memoryFor, workspaceOf, logLine, Watchdog })
             const label = mod.name ?? f
             logLine(`扩展已加载：${label}`)
-            ctx.logger?.info?.(`[whale_craft] 扩展已加载：${label}`)
+            ctx.logger?.info?.(`[dsh_minecraft_bot] 扩展已加载：${label}`)
           }
         } catch (e) {
           logLine(`扩展 ${f} 加载失败：${e.message}`)
-          ctx.logger?.warn?.(`[whale_craft] 扩展 ${f} 加载失败：${e.message}`)
+          ctx.logger?.warn?.(`[dsh_minecraft_bot] 扩展 ${f} 加载失败：${e.message}`)
         }
       }
     })()
-  }, 'whale_craft: extensions')
+  }, 'dsh_minecraft_bot: extensions')
 
   /* ── 诊断 ── */
 

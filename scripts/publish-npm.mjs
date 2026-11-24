@@ -1,5 +1,5 @@
 /**
- * whale_craft · 本机发布 npm（`npm run publish:npm`）
+ * dsh_minecraft_bot · 本机发布 npm（`npm run publish:npm`）
  * ============================================================================
  * 为什么要有它（用户 2026-09-17）：
  *   · CI 里那步 `npm publish` 已经**删掉**了（token 一失效就红叉，而发布其实早就成功）；
@@ -79,7 +79,7 @@ const capture = (cmd, args, opts = {}) => {
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const name = pkg.name
 const version = pkg.version
-console.log(`whale_craft · 本机发布 npm${DRY ? '（dry-run：最后一步不会真发）' : ''}`)
+console.log(`dsh_minecraft_bot · 本机发布 npm${DRY ? '（dry-run：最后一步不会真发）' : ''}`)
 console.log(`  包：${name}@${version}｜dist-tag：${DIST_TAG}`)
 
 step(1, '工作树干净？')
@@ -135,7 +135,7 @@ step(6, 'npm pack 清单（不该有 logs / 账户 / 配置）')
   const files = info.files.map((f) => f.path)
   console.log(`  ${info.entryCount} 个文件 / ${(info.size / 1024).toFixed(1)} KB：`)
   for (const f of files) console.log(`    ${f}`)
-  const forbidden = files.filter((f) => /(^|\/)(node_modules|logs)\/|accounts\.json$|config\.json$|\.whale-craft/.test(f))
+  const forbidden = files.filter((f) => /(^|\/)(node_modules|logs)\/|accounts\.json$|config\.json$|\.minecraft-bot/.test(f))
   if (forbidden.length) die(`清单里混进了运行期产物：${forbidden.join(', ')}`)
   ok('清单干净')
 }

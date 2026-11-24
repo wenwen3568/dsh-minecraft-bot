@@ -1,5 +1,5 @@
 /**
- * whale_craft —— 浏览器半端（client bundle）
+ * dsh_minecraft_bot —— 浏览器半端（client bundle）
  * ============================================================================
  * 会话标题旁的状态条 + **一个**「强制停止」按钮 + 「MC设置」按钮与其模态框。
  *
@@ -43,7 +43,7 @@
  * ============================================================================
  */
 window.__ModuleLoader__.load({
-  id: 'whale_craft',
+  id: 'dsh_minecraft_bot',
   factory(require) {
     const React = require('react')
 
@@ -119,7 +119,7 @@ window.__ModuleLoader__.load({
 [data-wc-btn][data-wc-icon]{padding:0;width:28px;}
 [data-wc-btn][data-wc-tiny][data-wc-icon]{width:24px;}
 /* 新会话页那个按钮是插进 hero 行、贴在模式芯片右边的（那一行 gap:2px，这里再给点间距） */
-[data-whale-craft-mc-settings]{margin-left:6px;}
+[data-minecraft-bot-mc-settings]{margin-left:6px;}
 [data-slot="conversation.session.header.actions"] [data-wc-btn]:first-child{margin-left:8px;}
 
 /* ── 「创建MC+分支」：仿原生消息操作图标按钮（挂在 assistant-actions 插槽，只出图标）────── */
@@ -632,10 +632,10 @@ select[data-wc-in]{appearance:none;padding-right:22px;
      *
      * 名单（哪些 preset 算 MC 模式，含 MC+）取服务端 **`/api/mc/presets`**（专门给门控用的极小接口，
      * 不需要 sessionId / 工作区 —— `/api/mc/config` 现在要工作区，用它会被拒而静默退回兜底名单）；
-     * 没回来之前先用插件默认值 `['minecraft','minecraft-plus','whale_craft']`（与后端默认一致）。
+     * 没回来之前先用插件默认值 `['minecraft','minecraft-plus','dsh_minecraft_bot']`（与后端默认一致）。
      * 服务端 `/api/mc/mode` 仍保留，供排查与测试用，前端不再依赖它。
      * ================================================================== */
-    const MC_PRESETS_FALLBACK = ['minecraft', 'minecraft-plus', 'whale_craft']
+    const MC_PRESETS_FALLBACK = ['minecraft', 'minecraft-plus', 'dsh_minecraft_bot']
     let mcPresetIds = MC_PRESETS_FALLBACK.slice()
     let mcPresetIdsAsked = false
 
@@ -762,7 +762,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
 
     /** 没选工作区时的提示（**优先原生**：用户要求） */
     const NO_WORKSPACE_TIP = '请先在这个对话里选择一个工作区，再打开「MC设置」。\n\n'
-      + 'MC 模式的记忆与提示词都放在工作区的 .whale-craft 目录里，没有工作区就没有地方放。'
+      + 'MC 模式的记忆与提示词都放在工作区的 .minecraft-bot 目录里，没有工作区就没有地方放。'
 
     /**
      * 当前会话（或新对话页那个 blank 会话）**选中的工作区**。
@@ -856,20 +856,20 @@ select[data-wc-in]{appearance:none;padding-right:22px;
     }
 
     /* ==================================================================
-     * 「MC设置」入口③：**插件页 → whale_craft 详情页**头部的按钮（2026-10-04，演示）
+     * 「MC设置」入口③：**插件页 → dsh_minecraft_bot 详情页**头部的按钮（2026-10-04，演示）
      * ----------------------------------------------------------------
      * 插件管理页的 `plugins.detail.actions` 插槽是 **root 作用域**（无会话、无工作区），
      * 所以这里**只渲染一个按钮**、不挂模态框（现有模态框依赖 sessionId / 工作区）。
-     * 自过滤：只认 whale_craft 自己的 bundle 页（`subject.kind==='bundle'` 且包名匹配）；
+     * 自过滤：只认 dsh_minecraft_bot 自己的 bundle 页（`subject.kind==='bundle'` 且包名匹配）；
      * 别的 bundle / row / item 一律返回 null（官方约定：对无关 subject 返回 null）。
      * ⚠️ 当前点击是**空操作** —— 只演示入口位置，后端解耦与面板接入待后续。
      * ================================================================== */
-    const DETAIL_BUNDLE_NAME = 'whale_craft'
+    const DETAIL_BUNDLE_NAME = 'dsh_minecraft_bot'
     /**
-     * 「设置」入口③：**插件页 → whale_craft 详情页**头部的按钮（2026-10-04）。
+     * 「设置」入口③：**插件页 → dsh_minecraft_bot 详情页**头部的按钮（2026-10-04）。
      * 这个插槽是 **root 作用域**（无会话、无工作区），所以它打开的模态框天然走"无工作区"模式：
      * 全局项（账户 / 白名单 / 分享模式）照常，工作区项隐藏或只读。
-     * 自过滤：只认 whale_craft 自己的 bundle 页（`subject.kind==='bundle'` 且包名匹配）；
+     * 自过滤：只认 dsh_minecraft_bot 自己的 bundle 页（`subject.kind==='bundle'` 且包名匹配）；
      * 别的 bundle / row / item 一律返回 null（官方约定：对无关 subject 返回 null）。
      * ⚠️ `useState` 必须在早返回**之前**调用（hooks 规则）。
      */
@@ -916,8 +916,8 @@ select[data-wc-in]{appearance:none;padding-right:22px;
      *    · 组件卸载立刻把按钮摘掉。
      * ================================================================== */
     const HERO_CHIP_ANCHOR = '[data-slot="conversation.hero.agentPreset"]'
-    const HERO_BTN_ATTR = 'data-whale-craft-mc-settings'
-    const HERO_CONNECT_ATTR = 'data-whale-craft-mc-connect'
+    const HERO_BTN_ATTR = 'data-minecraft-bot-mc-settings'
+    const HERO_CONNECT_ATTR = 'data-minecraft-bot-mc-connect'
     /** hero 行里我们注入的按钮：属性 → 排序（小的靠左）。锚点右边依次是 连接(40) → 设置(45)。 */
     const HERO_BTN_ORDER = { [HERO_CONNECT_ATTR]: 40, [HERO_BTN_ATTR]: 45 }
 
@@ -1100,12 +1100,12 @@ select[data-wc-in]{appearance:none;padding-right:22px;
      * 历史残留清理（只为清掉老 bundle 留在页面上的按钮）
      * ----------------------------------------------------------------
      * 2026-09-16 那个把按钮插到"输入框上方全宽长条"的旧实现可能还在页面里留了节点
-     * （改代码当天 HMR 换过好几版）。这里在 apply 时一次性把 `[data-whale-craft-mc-settings]`
+     * （改代码当天 HMR 换过好几版）。这里在 apply 时一次性把 `[data-minecraft-bot-mc-settings]`
      * 全摘掉；新实现自己会按需把按钮插回**正确的位置**（模式芯片右边）。
      * ================================================================== */
     function purgeLegacyInjectedButtons() {
       try {
-        for (const el of document.querySelectorAll('[data-whale-craft-mc-settings],[data-whale-craft-mc-connect]')) el.remove()
+        for (const el of document.querySelectorAll('[data-minecraft-bot-mc-settings],[data-minecraft-bot-mc-connect]')) el.remove()
       } catch (e) { /* 清理失败无所谓，不影响任何功能 */ }
     }
 
@@ -1626,7 +1626,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
           versionPrompt
             ? React.createElement('details', { 'data-wc-verprompt': '' },
               React.createElement('summary', {},
-                `本版本内置提示（随插件版本更新，不可编辑）：whale_craft v${versionPrompt.version}`),
+                `本版本内置提示（随插件版本更新，不可编辑）：dsh_minecraft_bot v${versionPrompt.version}`),
               React.createElement('pre', {}, String(versionPrompt.text ?? '')))
             : null,
           // 三个开关只在**有工作区**时出现（它们的值按工作区存）
@@ -1640,7 +1640,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
                 on: followVersion === true,
                 onToggle: (next) => onFollowVersion(next),
               }),
-              // 注入本提示词（`<工作区>/.whale-craft/RULES.md`）：版本行作为它的说明，不再单独一行
+              // 注入本提示词（`<工作区>/.minecraft-bot/RULES.md`）：版本行作为它的说明，不再单独一行
               React.createElement(Switch, {
                 key: 'wc', mark: true, title: '注入本提示词 RULES.md',
                 label: ['注入本提示词 ', h(FileName, { key: 'f', name: 'RULES.md', missing: rulesExists === false })],
@@ -1671,7 +1671,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
     /**
      * 「文件分享」页（用户 2026-09-17 定；2026-10-07 按宿主模式拆键）。
      * 视觉上仍是**一个**开关，但它按当前模式绑定到各自的配置键：
-     *   · web 模式：开关 + base（回 `base + /api/whale-craft/express/…` 完整 URL）；
+     *   · web 模式：开关 + base（回 `base + /api/minecraft-bot/express/…` 完整 URL）；
      *   · 桌面模式：开关 + **托管端口**（插件自起 localhost 服务，回 `http://localhost:<port>/<uuid>/<rel>`）。
      * 关闭（默认）：AI 只会把**绝对路径**告诉用户。
      */
@@ -2205,7 +2205,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
     }
 
     function McSettingsModal(props) {
-      // 🔴 提示词是**按会话工作区**的（`.whale-craft/RULES.md`），所以要把会话 id / 工作区 cwd 带上。
+      // 🔴 提示词是**按会话工作区**的（`.minecraft-bot/RULES.md`），所以要把会话 id / 工作区 cwd 带上。
       const sessionId = props?.sessionId ?? null
       const wsCwd = props?.wsCwd ?? null
       /**
@@ -2242,7 +2242,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
       const [mdPath, setMdPath] = React.useState('')
       const [injectWc, setInjectWc] = React.useState(true)
       const [injectWs, setInjectWs] = React.useState(false)
-      // 「提示词 → 随版本更新」（默认开）：开关与版本记录都**按工作区**存（.whale-craft/config.json）
+      // 「提示词 → 随版本更新」（默认开）：开关与版本记录都**按工作区**存（.minecraft-bot/config.json）
       const [followVersion, setFollowVersion] = React.useState(true)
       const [rulesVersion, setRulesVersion] = React.useState(null)
       const [pluginVersion, setPluginVersion] = React.useState('')
@@ -2316,7 +2316,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
             setWorkspaceName(String(c.workspaceName ?? ''))
             setWlText(whitelistToText(c.commandWhitelist))
             setAllowAll(c.allowAllCommands === true)
-            setInjectWc(c.injectWhaleCraftAgentsMd !== false)
+            setInjectWc(c.injectMinecraftBotAgentsMd !== false)
             setInjectWs(c.injectWorkspaceAgentsMd === true)
             // 文件分享按宿主模式各认一套键：web = enabled+base；desktop = enabled+port
             const mode = c.mode === 'desktop' ? 'desktop' : 'web'
@@ -2465,7 +2465,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
         run('md:reset', () => apiDelete('/api/mc/agents-md', { sessionId }), '已恢复默认'), [run, sessionId])
 
       const toggleInjectWc = React.useCallback((next) =>
-        run('cfg:wc', () => apiPatch(withSid('/api/mc/config'), { injectWhaleCraftAgentsMd: next === true }),
+        run('cfg:wc', () => apiPatch(withSid('/api/mc/config'), { injectMinecraftBotAgentsMd: next === true }),
           next ? '已开启提示词注入' : '已关闭提示词注入'), [run])
 
       const toggleInjectWs = React.useCallback((next) =>
@@ -2838,21 +2838,21 @@ select[data-wc-in]{appearance:none;padding-right:22px;
       apply(ctx) {
         clientCtx = ctx
         const style = document.createElement('style')
-        style.setAttribute('data-plugin-css', 'whale_craft')
+        style.setAttribute('data-plugin-css', 'dsh_minecraft_bot')
         style.textContent = CSS
         document.head.appendChild(style)
-        ctx.effect(() => () => { style.remove() }, 'whale_craft: status bar styles')
+        ctx.effect(() => () => { style.remove() }, 'dsh_minecraft_bot: status bar styles')
 
         // list/session 插槽：增量安全，不覆盖官方 header
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register(
-          { name: 'conversation.session.header.actions', id: 'whale_craft-status', order: 50 },
+          { name: 'conversation.session.header.actions', id: 'dsh_minecraft_bot-status', order: 50 },
           McStatusBar,
         ))
 
         // 「连接到MC」入口①：标题条（order 40 → 落在「设置」45 的**左边**）。
         // 门控同「设置」（MC 模式）；**在游戏中时隐藏**（见 McConnectEntry）。
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register(
-          { name: 'conversation.session.header.actions', id: 'whale_craft-mc-connect', order: 40 },
+          { name: 'conversation.session.header.actions', id: 'dsh_minecraft_bot-mc-connect', order: 40 },
           McConnectEntry,
         ))
 
@@ -2860,7 +2860,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
         // 判据 = 会话记录的 agent preset ∈ mcModePresets（本地判定，见 useMcSettingsGate）。
         // order 45 < 50 → 落在状态条**左边**（官方预设标签 -10 更左）。
         ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register(
-          { name: 'conversation.session.header.actions', id: 'whale_craft-mc-settings', order: 45 },
+          { name: 'conversation.session.header.actions', id: 'dsh_minecraft_bot-mc-settings', order: 45 },
           McSettingsEntry,
         ))
 
@@ -2869,21 +2869,21 @@ select[data-wc-in]{appearance:none;padding-right:22px;
         // 借这个插槽拿一个可靠的挂载时机：hero 与 composer 都渲染它，配合 blank 门控
         // 就只在**新会话页**挂载。与入口①按 blank 互斥，所以页面上任何时候只有一套入口。
         ctx.slots.inject('conversation.input.right', () => ctx.slots.register(
-          { name: 'conversation.input.right', id: 'whale_craft-mc-settings-hero', order: 20 },
+          { name: 'conversation.input.right', id: 'dsh_minecraft_bot-mc-settings-hero', order: 20 },
           McSettingsDockEntry,
         ))
 
-        // 「MC设置」入口③：**插件页 → whale_craft 详情页**头部按钮（演示，暂无功能）。
-        // root 作用域、无会话 —— 组件自己按 subject 过滤，只认 whale_craft 的 bundle 页。
+        // 「MC设置」入口③：**插件页 → dsh_minecraft_bot 详情页**头部按钮（演示，暂无功能）。
+        // root 作用域、无会话 —— 组件自己按 subject 过滤，只认 dsh_minecraft_bot 的 bundle 页。
         ctx.slots.inject('plugins.detail.actions', () => ctx.slots.register(
-          { name: 'plugins.detail.actions', id: 'whale_craft-mc-settings-detail', order: 20 },
+          { name: 'plugins.detail.actions', id: 'dsh_minecraft_bot-mc-settings-detail', order: 20 },
           McSettingsDetailEntry,
         ))
 
         // 「创建MC+分支」：挂在原生「分支」旁边的消息操作行（session 作用域）。
         // 门控 = 本地 preset ∈ {standard, minecraft}（见 usePlusBranchGate）。
         ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register(
-          { name: 'conversation.chat.assistant-actions', id: 'whale_craft-plus-branch', order: 10 },
+          { name: 'conversation.chat.assistant-actions', id: 'dsh_minecraft_bot-plus-branch', order: 10 },
           McPlusBranchAction,
         ))
 

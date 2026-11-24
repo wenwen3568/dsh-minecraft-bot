@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / protected.mjs —— **受保护文件**的统一判定（MC 模式只读）
+ * dsh_minecraft_bot / protected.mjs —— **受保护文件**的统一判定（MC 模式只读）
  * ============================================================================
  * 用户 2026-10-03 定：这些住在记忆根**根级**的文件是给 Master / 插件维护的，
  * MC 模式的 AI **可读不可写**：
@@ -30,8 +30,12 @@ export function isProtectedName (seg) {
  * guard 用：工具参数里的"路径"是不是受保护文件。
  * 认两种写法：
  *   · 裸名（`RULES.md`）——记忆工具的相对路径就是这种，指记忆根根级；
- *   · 含 `.whale-craft` / `whale_craft` 段的路径（`E:\ws\.whale-craft\config.json`、包内目录）。
+ *   · 含 `.minecraft-bot` / `dsh_minecraft_bot` 段的路径（`E:\ws\.minecraft-bot\config.json`、包内目录）。
  * 嵌套的普通记忆文件（如 `_global/config.json`）**不**算，可以正常读写。
+ *
+ * 🔴 必须**同时认老名字**（`.whale-craft` / `whale_craft`，2026-11 改名前）：
+ *    用户升级后旧目录可能还在（迁移没做完、或他自己手放了一份），
+ *    只认新名 = 退化成"AI 可以随便改老配置" —— 正是这条保护要防的事。
  */
 export function isProtectedPathArg (raw) {
   const s = String(raw ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '')
@@ -39,7 +43,8 @@ export function isProtectedPathArg (raw) {
   const segs = s.split('/').filter(Boolean)
   if (!segs.length || !isProtectedName(segs[segs.length - 1])) return false
   if (segs.length === 1) return true
-  return segs.some((x) => /^\.?whale[-_]craft$/i.test(x))
+  // 新名 + 老名都认（老名兜住"改名前就存在"的目录）
+  return segs.some((x) => /^\.?(whale[-_]craft|minecraft[-_]bot|dsh_minecraft_bot)$/i.test(x))
 }
 
 /** 宿主凭据库 / 凭据相关路径（guard 与 `mc_kit_fs` 共用同一份判定，别在两处各写一份） */

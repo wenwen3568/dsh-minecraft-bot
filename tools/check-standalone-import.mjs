@@ -1,5 +1,5 @@
 /**
- * 发布侧回归：**干净目录安装后 `import('whale_craft')` 必须成功**（CI 必跑）。
+ * 发布侧回归：**干净目录安装后 `import('dsh_minecraft_bot')` 必须成功**（CI 必跑）。
  * ============================================================================
  * 🔴 为什么必须"npm pack → 独立目录 npm install"：
  *   开发机的 node_modules（含 link 安装）解析得到宿主包（@deepseek-ai/dsh-tools / schemastery），
@@ -44,8 +44,8 @@ try {
 
   // 3) 只做 import（不启动 DSH）；Config 允许缺（宿主 schemastery 不可用时按设计不导出）
   detail = execFileSync(process.execPath, ['-e', `
-    import('whale_craft').then((m) => {
-      if (m.name !== 'whale_craft') throw new Error('name 不对：' + String(m.name))
+    import('dsh_minecraft_bot').then((m) => {
+      if (m.name !== 'dsh_minecraft_bot') throw new Error('name 不对：' + String(m.name))
       if (typeof m.apply !== 'function') throw new Error('apply 不是函数')
       if (!Array.isArray(m.inject)) throw new Error('inject 不是数组')
       console.log('OK: ' + Object.keys(m).sort().join(', ') + '｜Config ' + (m.Config ? '有 schema' : '无（宿主 schemastery 不可用，按设计）'))
@@ -59,10 +59,10 @@ try {
 }
 
 if (ok) {
-  console.log(`✅ 干净目录安装后 import('whale_craft') 成功：${detail}`)
+  console.log(`✅ 干净目录安装后 import('dsh_minecraft_bot') 成功：${detail}`)
   process.exit(0)
 } else {
-  console.log('❌ 干净目录安装后 import(\'whale_craft\') 失败（干净环境是用户实际环境，必须通过）：')
+  console.log('❌ 干净目录安装后 import(\'dsh_minecraft_bot\') 失败（干净环境是用户实际环境，必须通过）：')
   console.log(detail.split('\n').slice(0, 15).map((l) => '   ' + l).join('\n'))
   console.log(`（保留现场供排查：${dir}）`)
   process.exit(1)

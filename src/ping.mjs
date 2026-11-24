@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / ping.mjs —— **单地址服务器探测（Minecraft STATUS ping）**
+ * dsh_minecraft_bot / ping.mjs —— **单地址服务器探测（Minecraft STATUS ping）**
  * ============================================================================
  * 用户 2026-09-18 要求："有没有 ping 的工具？已知地址，测试通透性和 motd 等信息，单地址。"
  *

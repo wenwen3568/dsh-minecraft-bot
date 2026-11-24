@@ -1,5 +1,5 @@
 // 全树语法验证器（2026-09-16 扩写；原版只查 core.mjs，漏过 config.mjs 的语法错）
-//   用法：node whale_craft/tools/check-core.mjs
+//   用法：node dsh_minecraft_bot/tools/check-core.mjs
 //
 //   背景（两个真实事故）：
 //   ① core.mjs 里少一个换行 → V8 提前结束 class 解析 → `#私有方法` 全失联 →

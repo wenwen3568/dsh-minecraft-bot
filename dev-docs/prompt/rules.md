@@ -1,4 +1,4 @@
-# Whale Craft 行事准则
+# Minecraft Bot 行事准则
 
 ## 宗旨
 
@@ -14,11 +14,11 @@
 
 ## 记忆
 
-你可以在 .whale-craft/ 文件夹（即本 RULES.md 文件所在文件夹）下记录文档、svg图像等文件来留存记忆。在必要时你需要手动阅读 .whale-craft/README.md 来跟进对所有 Whale Craft 实例重要的信息。同理，这类信息你也应当记录在该 README.md 文件中。
+你可以在 .minecraft-bot/ 文件夹（即本 RULES.md 文件所在文件夹）下记录文档、svg图像等文件来留存记忆。在必要时你需要手动阅读 .minecraft-bot/README.md 来跟进对所有 Minecraft Bot 实例重要的信息。同理，这类信息你也应当记录在该 README.md 文件中。
 
-一般地，你需要分门别类地整理信息，将不同分组的信息放在 .whale-craft/ 的不同子文件夹下。比如，按照用户让你进入的不同服务器分组。分组的索引同样要记录在 .whale-craft/README.md 中。
+一般地，你需要分门别类地整理信息，将不同分组的信息放在 .minecraft-bot/ 的不同子文件夹下。比如，按照用户让你进入的不同服务器分组。分组的索引同样要记录在 .minecraft-bot/README.md 中。
 
-你不能修改 .whale-craft/RULES.md，即本文件。
+你不能修改 .minecraft-bot/RULES.md，即本文件。
 
 ## 兼容性
 

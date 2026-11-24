@@ -9,8 +9,8 @@
 
 | 渠道 | 触发 | 产物 |
 | --- | --- | --- |
-| **GitHub Release** | 推 `v*` tag → CI 自动 | `whale_craft-<版本>.zip` + 正文取 CHANGELOG 本节 |
-| **npm** | ① CI（仓库配了 `NPM_TOKEN` 就自动发）② 或本机手动 `npm run publish:npm` | npm 包 `whale_craft@<版本>` |
+| **GitHub Release** | 推 `v*` tag → CI 自动 | `dsh_minecraft_bot-<版本>.zip` + 正文取 CHANGELOG 本节 |
+| **npm** | ① CI（仓库配了 `NPM_TOKEN` 就自动发）② 或本机手动 `npm run publish:npm` | npm 包 `dsh_minecraft_bot@<版本>` |
 
 > 🔴 **2026-09-18 起 npm 步骤加回工作流了**（用户要求），但**是"先探再发"**：仓库
 > Settings → Secrets and variables → Actions 里有 `NPM_TOKEN` 才发；**没配就明确跳过并打一条 notice**，
@@ -28,7 +28,7 @@
    ```bash
    git commit -am "0.1.7：…"
    git push
-   git tag -a v0.1.7 -m "whale_craft 0.1.7"
+   git tag -a v0.1.7 -m "dsh_minecraft_bot 0.1.7"
    git push origin v0.1.7
    ```
    **tag 必须与 `package.json` 版本逐字一致**（release.yml 会校验并直接失败）。
@@ -48,7 +48,7 @@
 - **check 矩阵**：ubuntu（Node 22 / 24）+ windows（Node 22）→ `npm ci` → `check-core` → `selfcheck`；
 - **package job**（全绿后）：`npm pack` 核对 tarball —— 必含
   `package.json/index.js/client.js/selfcheck.mjs/cordis.patch.yml/LICENSE/README.md/tools/check-core.mjs`；
-  **不得**混进 `node_modules/`、`logs/`、`accounts.json`、`config.json`、`.whale-craft`；上传 artifact。
+  **不得**混进 `node_modules/`、`logs/`、`accounts.json`、`config.json`、`.minecraft-bot`；上传 artifact。
 
 ## 4. 落地 / 修工作流文件（workflow scope 坑）
 
@@ -84,10 +84,10 @@ node scripts/publish-npm.mjs --yes --otp 123456 --tag next
 3. `check-core` + `selfcheck` 全绿（`--skip-checks` 可跳）；
 4. `npm whoami` 拿得到身份（token 不可用当场停，不会等 publish 才 404）；
 5. 该版本 npm 上**还没发过**（并报当前 latest）；
-6. `npm pack --dry-run` 清单里没有 `logs/`、`accounts.json`、`config.json`、`.whale-craft`；
+6. `npm pack --dry-run` 清单里没有 `logs/`、`accounts.json`、`config.json`、`.minecraft-bot`；
 7. 提醒 GitHub 有没有对应 tag（只提醒，不拦）。
 
-发完脚本会打印 `https://www.npmjs.com/package/whale_craft/v/<版本>`。
+发完脚本会打印 `https://www.npmjs.com/package/dsh_minecraft_bot/v/<版本>`。
 
 - **token 放哪**：首选 `npm login`（凭据进 `~/.npmrc`）；或环境变量 `NODE_AUTH_TOKEN`；写进本仓库 `.npmrc` 也行——**已在 `.gitignore` 里忽略**。
 - `publishConfig` 钉死 `registry: https://registry.npmjs.org/` + `access: public`（避免本机镜像 registry 把包发错地方）。
@@ -119,7 +119,7 @@ node scripts/publish-npm.mjs --yes --otp 123456 --tag next
 | `peerDependencies` 的 `@deepseek-ai/dsh-llm` / `@deepseek-ai/dsh-tools` | **真正强制**：宿主 dsh-app-boot 拿它和运行时版本做 `semver.satisfies(runtime, range, {includePrerelease:true})`（只查名字为 `@deepseek-ai/dsh` / `dsh-*` 的 peer；schemastery 不查，保持 `*` 即可） |
 | `selfcheck.mjs` 里的 `DSH_RANGE` 常量 | 把上面几处钉在一起 |
 
-- 失配的后果：**安装被拒**（`dsh plugin add` 预检，exit 1、什么都不装，含 `link:` 本地路径）；已装好的则是**启动时跳过该 bundle**（stderr 一行 `dsh: skipping profile bundle "whale_craft": …`，profile 其余照常）。
-- 逃生门（精确版本豁免）：`dsh plugin --profile web allow-version whale_craft@<版本> --dsh-version <运行时版本> --accept-risk`（配 `revoke-version` / `version-exemptions`；插件管理 UI 同款），落在 `<profile>/compatibility.json`。
+- 失配的后果：**安装被拒**（`dsh plugin add` 预检，exit 1、什么都不装，含 `link:` 本地路径）；已装好的则是**启动时跳过该 bundle**（stderr 一行 `dsh: skipping profile bundle "dsh_minecraft_bot": …`，profile 其余照常）。
+- 逃生门（精确版本豁免）：`dsh plugin --profile web allow-version dsh_minecraft_bot@<版本> --dsh-version <运行时版本> --accept-risk`（配 `revoke-version` / `version-exemptions`；插件管理 UI 同款），落在 `<profile>/compatibility.json`。
 - ⚠️ 范围写法的坑：**预发布必须显式写进范围**——`^0.2.0` 匹配不了 `0.2.0-rc.2`（rc 低于下限）；`^0.2.0-rc.1` / `>=0.2.0-rc.1 <0.3.0` 可以。
 - DSH 升级超出范围时（例如到 0.3.0）：要么发新版放宽/收紧范围，要么在用户侧加豁免——加宽范围前先真机验证。

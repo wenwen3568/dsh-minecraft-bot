@@ -42,18 +42,18 @@ const ISOLATE_START_PORT = Number(process.env.ISOLATE_PORT ?? 39901)
 const ISOLATE_PORT_RANGE = Number(process.env.ISOLATE_PORT_RANGE ?? 20)
 
 /** 生产状态目录（与插件里的 resolveStateDir 同一套规矩：$DSH_HOME → ~/.dsh） */
-const prodStateDir = () => join(String(process.env.DSH_HOME ?? '').trim() || join(homedir(), '.dsh'), 'whale_craft')
+const prodStateDir = () => join(String(process.env.DSH_HOME ?? '').trim() || join(homedir(), '.dsh'), 'dsh_minecraft_bot')
 
 /**
  * 给隔离实例**拷一份**当前状态当底子（这样它有真实的默认账户，但改动只落在副本上）。
- * 优先取生产状态目录；生产还没搬过去（老版本）就取工作区 `.whale-craft/`。
+ * 优先取生产状态目录；生产还没搬过去（老版本）就取工作区 `.minecraft-bot/`。
  */
 function seedStateDir () {
   mkdirSync(STATE_DIR, { recursive: true })
   for (const f of ['config.json', 'accounts.json']) {
     const dst = join(STATE_DIR, f)
     if (existsSync(dst)) continue
-    for (const src of [join(prodStateDir(), f), join(PKG, '..', '.whale-craft', f)]) {
+    for (const src of [join(prodStateDir(), f), join(PKG, '..', '.minecraft-bot', f)]) {
       if (existsSync(src)) { copyFileSync(src, dst); break }
     }
   }
@@ -109,21 +109,21 @@ if (cmd === 'start') {
     stdio: ['ignore', out, err],
     windowsHide: true,
     // 🔴 隔离实例有**自己的**状态目录：配置/账户改动只落副本，绝不碰生产。
-    // ⚠️ 记忆根**不再重定向**（用户 2026-10-08：记忆只认 `<会话工作区>/.whale-craft`）——
-    //    所以隔离实例要用一个**独立临时工作区**当会话工作区，记忆自然落它的 `.whale-craft` 里；
-    //    别再拿生产工作区开会话，否则会往那边写 `.whale-craft/`。
+    // ⚠️ 记忆根**不再重定向**（用户 2026-10-08：记忆只认 `<会话工作区>/.minecraft-bot`）——
+    //    所以隔离实例要用一个**独立临时工作区**当会话工作区，记忆自然落它的 `.minecraft-bot` 里；
+    //    别再拿生产工作区开会话，否则会往那边写 `.minecraft-bot/`。
     // 🔴 preset 根目录**没法 redirect**（它在 DSH 的 agent-presets 配置里），也就是
     //    `~/.dsh/.agent-presets` 与本机生产共用 —— 插件"给已存在的 preset 补工具组"会直接改
     //    用户手写的那份。所以隔离实例一律禁止写 preset（插件认这个开关，只记日志）。
-    env: { ...process.env, WHALE_CRAFT_STATE_DIR: stateDir, WHALE_CRAFT_NO_PRESET_WRITE: '1' },
+    env: { ...process.env, MCBOT_STATE_DIR: stateDir, MCBOT_NO_PRESET_WRITE: '1' },
   })
   child.unref()
   writeFileSync(PIDFILE, JSON.stringify({ pid: child.pid, port, stateDir, at: new Date().toISOString() }, null, 2))
   console.log(`已起隔离实例：pid=${child.pid} port=${port}`)
   console.log('  状态目录（副本）：' + stateDir)
-  console.log('  ⚠️ preset 根目录与生产共用 → 已用 WHALE_CRAFT_NO_PRESET_WRITE=1 禁掉写 preset')
-  console.log(`  日志：whale_craft/logs/isolate-${port}-out.log`)
-  console.log('  等 ~40 秒后跑 `node whale_craft/tools/isolate.mjs status` 看整树是否加载成功')
+  console.log('  ⚠️ preset 根目录与生产共用 → 已用 MCBOT_NO_PRESET_WRITE=1 禁掉写 preset')
+  console.log(`  日志：dsh_minecraft_bot/logs/isolate-${port}-out.log`)
+  console.log('  等 ~40 秒后跑 `node dsh_minecraft_bot/tools/isolate.mjs status` 看整树是否加载成功')
   process.exit(0)
 }
 

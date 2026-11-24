@@ -1,4 +1,4 @@
-# Whale Craft / 鲸鱼工艺
+# dsh-minecraft-bot
 
 **[English ↓](#english)** · 中文 · [![CI](https://github.com/wenwen3568/dsh-minecraft-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/wenwen3568/dsh-minecraft-bot/actions/workflows/ci.yml)
 
@@ -9,7 +9,7 @@
 - 👀 **看到这个世界**：地形图、高度图，以及方块、实体探索工具，帮助AI了解这个世界
 - 🛠️ **真的会做东西**：在工作台上合成（自动补中间材料、自动找/造工作台）、用熔炉冶炼取产物，还接入了寻路、自动选工具、自动进食、就近采集、自动战斗五个 mineflayer 插件
 - 🔔 **单代理+看门狗**：使用一个主代理作为“大脑”，使用看门狗接收事件、记录消息。适时唤醒、打断AI，确保助理及时相应发生的各种事件，如玩家召唤
-- 🧠 **长期记忆**：`<工作区>/.whale-craft/` 文档树，由助理自动维护，保证工作、冒险的可持续性
+- 🧠 **长期记忆**：`<工作区>/.minecraft-bot/` 文档树，由助理自动维护，保证工作、冒险的可持续性
 - 🖥️ **友好的 UI**：游戏状态条、停止按钮、MC设置，以及一键连接到MC，简单易用
 - 🔒 **账户安全**：支持离线账户、第三方皮肤站账户。凭据写在宿主配置中，AI不会直接拿到，使用类似“凭据管理器”的机制进行操作
 - 📢 **提示词调优**：插件内置提示词，教会AI如何与AI交互，如何存储记忆等，也提供“建出好建筑”的建议、引导。部分提示词还可自由修改
@@ -51,30 +51,30 @@
 >
 > 无论你从何种方式安装本插件，安装完成后，为保证所有功能正常，务必完全重启DSH实例。
 
-对你的 AI 说：`帮我安装插件 npm:whale_craft@^0.2.0-beta.4`
+对你的 AI 说：`帮我安装插件 npm:dsh_minecraft_bot@^0.2.0-beta.4`
 
 ### DSH 插件管理
 
-在 DSH 主界面找到“插件”，点击打开插件页面，点击“添加插件”按钮，在输入框中输入 `whale_craft@^0.2.0-beta.4`，点击安装。
+在 DSH 主界面找到“插件”，点击打开插件页面，点击“添加插件”按钮，在输入框中输入 `dsh_minecraft_bot@^0.2.0-beta.4`，点击安装。
 
 ### 手动安装
 
-本插件的 github 地址为 https://github.com/wenwen3568/dsh-minecraft-bot ，npm 包名为 `whale_craft`。
+本插件的 github 地址为 https://github.com/wenwen3568/dsh-minecraft-bot ，npm 包名为 `dsh_minecraft_bot`。
 
-历史遗留原因，npm包名使用下划线，应当注意到仓库名和包名的不同，以免安装错误。
+> 注意：包名用**下划线**、仓库名用**连字符**，这是 npm 与 GitHub 各自的命名习惯，不是笔误。
 
 > 此处 profile 以 web 为例。DSH Desktop 的 profile 为 desktop，如果你使用了自己定义的 profile，情况有所不同。
 
-从 github 仓库安装：
+从 github 仓库安装（**推荐**，无需等 npm 发布）：
 
 ```bash
 dsh plugin --profile web add github:wenwen3568/dsh-minecraft-bot
 ```
 
-从 npm 安装：
+从 npm 安装（**发布后可用**）：
 
 ```bash
-dsh plugin --profile web add whale_craft@^0.2.0-beta.4
+dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
 ```
 
 别忘了重启DSH。
@@ -88,7 +88,7 @@ dsh plugin --profile web add whale_craft@^0.2.0-beta.4
 | | MC模式 |	MC+模式 |
 | --- | --- | --- |
 | 工具面 | 只提供与MC游戏有关的工具，以及其他必要的工具 |	额外提供标准模式下的所有工具，如运行命令 |
-| 文件工具边界	| 只允许操作工作区下.whale-craft 子目录内的文件 |	允许操作工作区所有文件，权限放开后允许操作所有文件 |
+| 文件工具边界	| 只允许操作工作区下.minecraft-bot 子目录内的文件 |	允许操作工作区所有文件，权限放开后允许操作所有文件 |
 | 提示词注入	| RULES.md / 版本提示，可选注入工作区 AGENTS.md	| 同上，此外固定注入工作区 AGENTS.md |
 | 看门狗 / 长期记忆 / MC设置 |	✓ |	✓ |
 
@@ -158,13 +158,13 @@ dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool \
 
 | 东西               | 位置                                                                                                          |
 | ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| 全局配置           | `$DSH_HOME/whale_craft/config.json`                                                                           |
-| 账户元数据         | `$DSH_HOME/whale_craft/accounts.json`                                                                         |
-| 插件日志           | `$DSH_HOME/whale_craft/logs/whale-craft.log`（可用 `MC_LOG` 覆盖）                                            |
-| 会话锁（连服期间） | `$DSH_HOME/whale_craft/.instance.<会话>.json`                                                                 |
-| 记忆 / 提示词      | **`<会话工作区>/.whale-craft/`**：`README.md`（AI 维护的总索引）+ `RULES.md`（行事准则）+ 任意文档/图片等文件 |
-| 按工作区的配置     | `<会话工作区>/.whale-craft/config.json`（提示词三个开关 + 版本标记；对 MC模式 AI **只读**，MC+ 按宿主默认）   |
-| 分享               | `<会话工作区>/.whale-craft/.express/`                                                                         |
+| 全局配置           | `$DSH_HOME/dsh_minecraft_bot/config.json`                                                                           |
+| 账户元数据         | `$DSH_HOME/dsh_minecraft_bot/accounts.json`                                                                         |
+| 插件日志           | `$DSH_HOME/dsh_minecraft_bot/logs/minecraft-bot.log`（可用 `MC_LOG` 覆盖）                                            |
+| 会话锁（连服期间） | `$DSH_HOME/dsh_minecraft_bot/.instance.<会话>.json`                                                                 |
+| 记忆 / 提示词      | **`<会话工作区>/.minecraft-bot/`**：`README.md`（AI 维护的总索引）+ `RULES.md`（行事准则）+ 任意文档/图片等文件 |
+| 按工作区的配置     | `<会话工作区>/.minecraft-bot/config.json`（提示词三个开关 + 版本标记；对 MC模式 AI **只读**，MC+ 按宿主默认）   |
+| 分享               | `<会话工作区>/.minecraft-bot/.express/`                                                                         |
 
 > 记忆是**按会话工作区**的，与插件装在哪、DSH 装在哪都无关。
 
@@ -186,7 +186,7 @@ DSH_ROOT=/path/to/deepseek-harness node tools/isolate.mjs start
 
 CI 跑的就是这两条（`.github/workflows/ci.yml`）：**ubuntu（Node 22 / 24）+ windows（Node 22）**；
 另有一个「打包产物」job，`npm pack` 之后核对 tarball 里该有的文件都在、且没混进 `node_modules` / 日志 / 账户，
-再跑一遍 **干净环境回归**（pack → 独立目录 `npm install` → `import('whale_craft')` 必须成功 ——
+再跑一遍 **干净环境回归**（pack → 独立目录 `npm install` → `import('dsh_minecraft_bot')` 必须成功 ——
 本机 link 安装永远测不出「宿主包解析不到」，只有干净安装复现得了用户环境，见 issue #5）。
 
 发布走 tag（`.github/workflows/release.yml`）：`git tag v0.1.7 && git push origin v0.1.7` →
@@ -245,7 +245,7 @@ MIT（见 `LICENSE`）。第三方组件与许可见 `THIRD_PARTY_NOTICES.md`。
 
 ## English
 
-**[↑ 中文版](#whale-craft--鲸鱼工艺)**
+**[↑ 中文版](#minecraft-bot--Minecraft Bot)**
 
 **Let DSH play MC** — a native DSH (DeepSeek Harness) plugin that runs a headless Minecraft bot
 (mineflayer) inside the DSH process, joins a Minecraft server, and interacts with the world and
@@ -255,7 +255,7 @@ players through tool calls to build, survive and finish tasks.
 - 👀 **It sees the world** — terrain and height maps, plus block/entity exploration tools, help the agent understand the world.
 - 🛠️ **It actually makes things** — crafts at a workbench (filling in intermediate materials, finding or building the table itself), smelts in a furnace and takes the output, and integrates five mineflayer plugins: pathfinding, best-tool selection, auto-eat, nearby collecting, and PvP.
 - 🔔 **One agent + a watchdog** — a single main agent is the "brain"; the watchdog receives events and logs messages, waking and interrupting the agent at the right moment so it reacts to what happens, e.g. a player calling it.
-- 🧠 **Long-term memory** — a document tree under `<workspace>/.whale-craft/`, kept up to date by the agent, so work and adventures continue across sessions.
+- 🧠 **Long-term memory** — a document tree under `<workspace>/.minecraft-bot/`, kept up to date by the agent, so work and adventures continue across sessions.
 - 🖥️ **Friendly UI** — a game status chip, a stop button, MC Settings, and one-click "Connect to MC".
 - 🔒 **Account safety** — offline and third-party (Yggdrasil) accounts. Credentials live in the host config and are never handed to the model directly, via a credential-manager-style flow.
 - 📢 **Tuned prompts** — built-in prompts teach the agent how to interact with the world and how to keep memory, and give advice that guides good builds. Some prompts are freely editable.
@@ -304,31 +304,31 @@ players through tool calls to build, survive and finish tasks.
 >
 > However you install the plugin, fully restart the DSH instance afterwards so every feature works.
 
-Tell your agent: *"install the plugin `npm:whale_craft@^0.2.0-beta.4`"*
+Tell your agent: *"install the plugin `npm:dsh_minecraft_bot@^0.2.0-beta.4`"*
 
 ### DSH plugin manager
 
-Open **Plugins** from the DSH main UI, click **Add plugin**, enter `whale_craft@^0.2.0-beta.4`, and
+Open **Plugins** from the DSH main UI, click **Add plugin**, enter `dsh_minecraft_bot@^0.2.0-beta.4`, and
 install.
 
 ### Manual install
 
-The GitHub repo is https://github.com/wenwen3568/dsh-minecraft-bot ; the npm package name is `whale_craft`.
-For historical reasons the npm name uses an underscore — note that the repo name and the package name
-differ, so you do not install the wrong thing.
+The GitHub repo is https://github.com/wenwen3568/dsh-minecraft-bot ; the npm package name is `dsh_minecraft_bot`.
+The package name uses an **underscore** while the repo name uses **hyphens** — that is the npm/GitHub
+convention, not a typo.
 
 > The profile below is `web`. DSH Desktop's profile is `desktop`; a custom profile is different.
 
-Install from the GitHub repo:
+Install from the GitHub repo (**recommended**; no need to wait for an npm release):
 
 ```bash
 dsh plugin --profile web add github:wenwen3568/dsh-minecraft-bot
 ```
 
-Install from npm:
+Install from npm (**once published**):
 
 ```bash
-dsh plugin --profile web add whale_craft@^0.2.0-beta.4
+dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
 ```
 
 Don't forget to restart DSH.
@@ -342,7 +342,7 @@ Don't forget to restart DSH.
 | | MC mode | MC+ mode |
 | --- | --- | --- |
 | Toolset | Only MC-game tools, plus other necessary tools | Additionally exposes all standard-mode tools, e.g. running commands |
-| File tool boundary | Only files under the workspace's `.whale-craft/` | All files in the workspace (all files once permissions are relaxed) |
+| File tool boundary | Only files under the workspace's `.minecraft-bot/` | All files in the workspace (all files once permissions are relaxed) |
 | Prompt injection | RULES.md / version note; workspace `AGENTS.md` optional | The same, plus workspace `AGENTS.md` always injected |
 | Watchdog / long-term memory / MC Settings | ✓ | ✓ |
 
@@ -408,13 +408,13 @@ It:  (looks for a furnace → none → crafts one and places it → smelts → h
 
 | What               | Where                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Global config      | `$DSH_HOME/whale_craft/config.json`                                                                           |
-| Account metadata   | `$DSH_HOME/whale_craft/accounts.json`                                                                         |
-| Plugin log         | `$DSH_HOME/whale_craft/logs/whale-craft.log` (override with `MC_LOG`)                                         |
-| Session lock (while connected) | `$DSH_HOME/whale_craft/.instance.<session>.json`                                                   |
-| Memory / prompts   | **`<workspace>/.whale-craft/`**: `README.md` (the agent's index) + `RULES.md` (conduct) + any docs/images     |
-| Per-workspace settings | `<workspace>/.whale-craft/config.json` (prompt toggles + version marker; **read-only** to the MC-mode agent, host default in MC+) |
-| Sharing            | `<workspace>/.whale-craft/.express/`                                                                          |
+| Global config      | `$DSH_HOME/dsh_minecraft_bot/config.json`                                                                           |
+| Account metadata   | `$DSH_HOME/dsh_minecraft_bot/accounts.json`                                                                         |
+| Plugin log         | `$DSH_HOME/dsh_minecraft_bot/logs/minecraft-bot.log` (override with `MC_LOG`)                                         |
+| Session lock (while connected) | `$DSH_HOME/dsh_minecraft_bot/.instance.<session>.json`                                                   |
+| Memory / prompts   | **`<workspace>/.minecraft-bot/`**: `README.md` (the agent's index) + `RULES.md` (conduct) + any docs/images     |
+| Per-workspace settings | `<workspace>/.minecraft-bot/config.json` (prompt toggles + version marker; **read-only** to the MC-mode agent, host default in MC+) |
+| Sharing            | `<workspace>/.minecraft-bot/.express/`                                                                          |
 
 > Memory is **per workspace** — independent of where the plugin or DSH is installed.
 
@@ -441,7 +441,7 @@ check of the client bundle.
 CI runs exactly these two (`.github/workflows/ci.yml`): **ubuntu (Node 22 / 24) + windows (Node 22)**;
 a separate "package" job runs `npm pack` and checks the tarball has the files it should and no
 `node_modules` / logs / accounts, then runs the clean-env regression (pack → install in a separate
-directory → `import('whale_craft')` must succeed — a local link install can never catch "host packages
+directory → `import('dsh_minecraft_bot')` must succeed — a local link install can never catch "host packages
 not resolvable"; only a clean install reproduces the user's environment, see issue #5).
 
 Releases go through a tag (`.github/workflows/release.yml`): `git tag v0.1.7 && git push origin v0.1.7`

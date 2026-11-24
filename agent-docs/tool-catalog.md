@@ -165,15 +165,15 @@ yield this.equipForBlock(block, options)   // ← 原参数递归调自己！
 | --- | --- | --- |
 | `mc_kit_rules` | 规则策略**只读**查询 | 按 `type` 回当前生效的策略（读的是 `mc_admin_config` 同一份 config，用户改完立即反映）：`command` → `commandWhitelist` + `allowAllCommands`；`web_fetch` → `webFetchEnabled` + 域名表 + 内容类型三开关（含内置图片格式）。补 MC 模式"看不见管理工具却要知道放行了什么"的缺口；`mc_command` / `mc_kit_web_fetch` 的描述指向它 |
 | `mc_kit_image` | 图像处理 | `info/embed/render/grid/save`：SVG→PNG 光栅化（`sharp`，可选依赖，缺失只影响 `render`）、引图进 SVG、拼网格（≤64 张，返回 SVG）、落盘。输入输出都限制在本会话工作区内（`insideWorkspace`） |
-| `mc_kit_fs` | 文件系统操作 | `copy/move/delete/make_dir`（都递归）。末尾 `/*` 只选目录下**直接**子项；**保留符号链接（不跟随）**。`to` 以分隔符结尾=放进该目录（目标父目录自动创建）；`overwrite=false` 默认不覆盖；**预检失败零副作用、错误一律中文**。沙箱按模式：**MC** 限 `.whale-craft/`、**MC+** 放工作区；相对路径以工作区根为基准。受保护文件（RULES.md/AGENTS.md/config.json）与凭据路径**不可删改**（`src/fsops.mjs` 权威 + guard 第二道锁，大小写不敏感） |
-| `mc_kit_express` | 把发布区文件换成"给用户的东西" | 路径解析先记忆根后 cwd；只认 `.express/`（目录即白名单）；**按宿主模式回不同 URL** —— web：`base + /api/whale-craft/express/<uuid>/…`；desktop：`http://localhost:<port>/<uuid>/…`（端口服务没起来回占用文案）；关闭恒回"文件分享已关闭…绝对路径…"；工作区 uuid 查不到即拒。宿主另有 `present`（显式文件交付组，MC 模式白名单里放行）——两者互补 |
+| `mc_kit_fs` | 文件系统操作 | `copy/move/delete/make_dir`（都递归）。末尾 `/*` 只选目录下**直接**子项；**保留符号链接（不跟随）**。`to` 以分隔符结尾=放进该目录（目标父目录自动创建）；`overwrite=false` 默认不覆盖；**预检失败零副作用、错误一律中文**。沙箱按模式：**MC** 限 `.minecraft-bot/`、**MC+** 放工作区；相对路径以工作区根为基准。受保护文件（RULES.md/AGENTS.md/config.json）与凭据路径**不可删改**（`src/fsops.mjs` 权威 + guard 第二道锁，大小写不敏感） |
+| `mc_kit_express` | 把发布区文件换成"给用户的东西" | 路径解析先记忆根后 cwd；只认 `.express/`（目录即白名单）；**按宿主模式回不同 URL** —— web：`base + /api/minecraft-bot/express/<uuid>/…`；desktop：`http://localhost:<port>/<uuid>/…`（端口服务没起来回占用文案）；关闭恒回"文件分享已关闭…绝对路径…"；工作区 uuid 查不到即拒。宿主另有 `present`（显式文件交付组，MC 模式白名单里放行）——两者互补 |
 | `mc_kit_web_fetch` | 抓网页（文本 + 图片） | 参数：`url` + 我们自己加的 `reply`/`dist`（语义照 `mc_map`：`reply=false` 只写文件回 stub）。🔴 **抓取全自研**：文本与图片都走 `src/webget.mjs`（唯一出网口：公网地址校验 + 地址钉死 + 只跟同源跳转 + 限 5MB / 10 万字符 / 20MB / 30s），**一次请求**、按真实 Content-Type 判型、**不经宿主 `ctx.web`**；输出形态照抄宿主（`Fetched <url> (HTTP <status>)` + 反注入声明 + 正文 + 截断尾注，上限 200000 字符；HTML 用 `src/webfetch.mjs` 的轻量转换，非 turndown）。**图片只支持内置四种** png/jpeg/gif/webp（= 宿主附件服务认的），其余一律算不支持；模型有视觉就直接附图，否则可落盘。**默认关**，受 `webFetchEnabled` + 域名表（`webFetchDomains` / `allowAllFetchDomains`）+「允许的内容类型」三开关（`webFetchAllowHtml` / `webFetchAllowText` / `webFetchAllowImage`，默认都开）门控；**MC 与 MC+ 两档都过** |
 
 ## 六、管理（1，`mc_admin_*`）
 
 | 工具 | 职责 | 关键点 |
 | --- | --- | --- |
-| `mc_admin_config` | 全局配置读写 | `get/set/unset/reset/list` 点号键；改完**立即热生效**（消费方每次过 getter）。**MC 模式会话看不见、也调不动**（白名单隐藏 + guard 硬拒双保险）；普通模式与 **MC+模式** 可见可用（MC+ 系用户 2026-10-04 定）。只含全局键——提示词三开关已下放为**按工作区**（`<工作区>/.whale-craft/config.json`，在「MC设置→提示词」改），不在本工具里 |
+| `mc_admin_config` | 全局配置读写 | `get/set/unset/reset/list` 点号键；改完**立即热生效**（消费方每次过 getter）。**MC 模式会话看不见、也调不动**（白名单隐藏 + guard 硬拒双保险）；普通模式与 **MC+模式** 可见可用（MC+ 系用户 2026-10-04 定）。只含全局键——提示词三开关已下放为**按工作区**（`<工作区>/.minecraft-bot/config.json`，在「MC设置→提示词」改），不在本工具里 |
 
 ## 七、调试（2，`mc_debug_*`）
 
@@ -200,7 +200,7 @@ yield this.equipForBlock(block, options)   // ← 原参数递归调自己！
 
 ## 历史变更（防混淆）
 
-- **`mc_kit_memory` 已删除**（2026-10-07）：长期记忆改由**宿主受限文件工具**（`read/write/edit/glob/grep/read_image`，MC 模式 guard 已限在 `.whale-craft/` 内）直接读写。**同日又去掉 README 索引的自动注入**（`memoryIndexText` 已删）：`README.md` 作为目录约定仍在，由 agent 按 RULES.md 自行阅读/维护，插件不再往上下文里注入它；`MemoryStore`（`src/memory.mjs`）保留为库。自检里有"mc_kit_memory 已移除 / 记忆索引不再自动注入"的断言——老名字不要再出现。已知缺口（等宿主补）：宿主暂无删文件工具、也无二进制 `put`。
+- **`mc_kit_memory` 已删除**（2026-10-07）：长期记忆改由**宿主受限文件工具**（`read/write/edit/glob/grep/read_image`，MC 模式 guard 已限在 `.minecraft-bot/` 内）直接读写。**同日又去掉 README 索引的自动注入**（`memoryIndexText` 已删）：`README.md` 作为目录约定仍在，由 agent 按 RULES.md 自行阅读/维护，插件不再往上下文里注入它；`MemoryStore`（`src/memory.mjs`）保留为库。自检里有"mc_kit_memory 已移除 / 记忆索引不再自动注入"的断言——老名字不要再出现。已知缺口（等宿主补）：宿主暂无删文件工具、也无二进制 `put`。
 - **`mc_kit_share`（及 `mc_map` 的 `share` 参数）已删除**（2026-09-16）：它只是在调宿主**另装**的 `dsh-file-host`，插件本身没有文件服务器。"让用户看到文件"改走：宿主 `present`（显式文件交付）+ 本插件的 `mc_kit_express`。自检里有"mc_kit_share 已移除 / 源码无文件服务器残留"的断言——老名字不要再出现。
 - 文件分享 2026-10-04 起是**开关**（`expressEnabled`），不再有"模式"；老配置里的 `expressMode`（含 `local`）由 `PluginConfig.migrate` 搬成布尔（`online`→`true`，其余→`false`）。
 - **2026-10-07 文件分享按宿主模式拆键**：`expressEnabled`/`expressBase` → **web 那套** `expressWebEnabled`/`expressWebBase`；新增 **desktop 那套** `expressDesktopEnabled`/`expressDesktopPort`（默认 16049，独立端口只监听 localhost）。从哪种模式（宿主 profile）进来只认哪套；`expressMode` 与两个旧键都由 `migrate` 逐档搬（见 architecture §10）。

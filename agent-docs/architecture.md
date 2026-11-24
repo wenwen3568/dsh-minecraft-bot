@@ -4,35 +4,35 @@
 
 ## 1. DSH 插件形态与挂载
 
-whale_craft 是**标准 DSH 插件**（两半端）：
+dsh_minecraft_bot 是**标准 DSH 插件**（两半端）：
 
 | 半端 | 文件 | 挂载方式 |
 | --- | --- | --- |
 | host（服务端） | `index.js` + `src/` | `package.json` → `dsh.bundle.patch: ./cordis.patch.yml`；profile 的 `dsh.profile.bundles` 里列包名即生效 |
 | client（浏览器） | `client.js` | `package.json` → `exports["./client"]`；`dsh.client.platform: "web"` |
 
-- `cordis.patch.yml` 内容就一件事：`insert: - id: whale_craft / name: whale_craft`（2026-10-02 起连 config 块也去掉了——`autoConnect` 是 0.1 时代的死配置）。
-- `index.js` 导出 `name='whale_craft'`、`inject=['webServer','tools']`、`Config`（schemastery schema；**宿主拿不到 schemastery 时不导出**，`apply` 自己兜默认值——见 [src-modules.md §16](src-modules.md)）、`apply(ctx, config)`。
+- `cordis.patch.yml` 内容就一件事：`insert: - id: dsh_minecraft_bot / name: dsh_minecraft_bot`（2026-10-02 起连 config 块也去掉了——`autoConnect` 是 0.1 时代的死配置）。
+- `index.js` 导出 `name='dsh_minecraft_bot'`、`inject=['webServer','tools']`、`Config`（schemastery schema；**宿主拿不到 schemastery 时不导出**，`apply` 自己兜默认值——见 [src-modules.md §16](src-modules.md)）、`apply(ctx, config)`。
   - 两个宿主包（`@deepseek-ai/dsh-tools` / `schemastery`）都是 **optional 且可缺省**：顶层不做静态 import（那会让干净安装/官方 desktop 在链接期就 `failed to import`，issue #5）；`defineTool` 走 `src/tool-def.mjs` 的宿主优先/内置兜底。
 - **host 半端不热重载**（装/改后要重启 DSH）；**client bundle 是 HMR 热更**的。
-- 浏览器端入口协议：`window.__ModuleLoader__.load({ id:'whale_craft', factory(require){...} })`，`apply(ctx)` 往 `slots` 注册三个插槽。
+- 浏览器端入口协议：`window.__ModuleLoader__.load({ id:'dsh_minecraft_bot', factory(require){...} })`，`apply(ctx)` 往 `slots` 注册三个插槽。
 
 ## 2. 运行时组件图
 
 ```
 DSH host 进程
 └─ index.js apply(ctx, config)
-   ├─ PluginConfig          $DSH_HOME/whale_craft/config.json（全局，热生效）
+   ├─ PluginConfig          $DSH_HOME/dsh_minecraft_bot/config.json（全局，热生效）
    ├─ wsconfig（src）        <记忆根>/config.json 按工作区的配置（提示词三开关 + 版本标记；迁移/建档）
    ├─ protected（src）       RULES.md / AGENTS.md / config.json 的"可读不可写"统一判定
-   ├─ AccountStore          $DSH_HOME/whale_craft/accounts.json + 宿主凭据服务（密码/token）
+   ├─ AccountStore          $DSH_HOME/dsh_minecraft_bot/accounts.json + 宿主凭据服务（密码/token）
    ├─ McRegistry            agentId → McSession
    │   └─ McSession         McBot + events[]（≤200 条）+ Watchdog + selectedAccount
    │       └─ McBot         src/core.mjs：mineflayer 实例（一个游戏角色）
    ├─ 工具注册（33 个）      mc_* 26 / mc_kit_* 4 / mc_admin_* 1 / mc_debug_* 2，全部经 asTool()
    ├─ HTTP（webServer）
    │   ├─ /api/mc/*                     状态/停止/设置（账户/配置/提示词/分享/preset 名单）
-   │   └─ /api/whale-craft/express/*    发布区文件（**仅 web 模式且分享开启**时服务）
+   │   └─ /api/minecraft-bot/express/*    发布区文件（**仅 web 模式且分享开启**时服务）
    ├─ ExpressShareServer                desktop 模式：自起只监听 localhost 的独立端口托管发布区
    ├─ agent/pre-step 监听   提示词注入（改写 decision.messages）+ MC 模式策略对账
    ├─ presets/*.patch.yml   包内声明「MC模式」「MC+模式」两个 preset（dsh.bundle.patch 数组）
@@ -63,7 +63,7 @@ DSH host 进程
 | `reconnectPending` | 掉线置位；**真重连成功或手动 mc_connect 成功才清** —— 覆盖"正在尝试连接"那几十秒，免得状态条退回"未上线" |
 | `active`（HTTP） | `online || reconnecting || reconnectPending || watchdog.armed` —— 决定浏览器状态条显不显示 |
 
-- **单实例锁**：连服期间 `$DSH_HOME/whale_craft/.instance.<会话>.json`（`lockDir = stateDir`，不写包目录）。
+- **单实例锁**：连服期间 `$DSH_HOME/dsh_minecraft_bot/.instance.<会话>.json`（`lockDir = stateDir`，不写包目录）。
 
 ## 4. 游戏侧核心：`McBot`（src/core.mjs）
 
@@ -100,14 +100,14 @@ DSH host 进程
 
 **本插件不往系统提示词里塞任何东西**。注入 = 往会话投"插件提示行"，常规 2~3 条：
 
-| 顺序 | 内容 | 开关（默认；前两个**按工作区**，存 `<工作区>/.whale-craft/config.json`） |
+| 顺序 | 内容 | 开关（默认；前两个**按工作区**，存 `<工作区>/.minecraft-bot/config.json`） |
 | --- | --- | --- |
 | 1 | 工作区根 `AGENTS.md`（宿主原生文件，插件再补一份） | `injectWorkspaceAgentsMd`（关） |
-| 2 | `.whale-craft/RULES.md`：行事准则（称呼/记忆/看门狗/登服/聊天/建筑/硬规矩） | `injectWhaleCraftAgentsMd`（开） |
+| 2 | `.minecraft-bot/RULES.md`：行事准则（称呼/记忆/看门狗/登服/聊天/建筑/硬规矩） | `injectMinecraftBotAgentsMd`（开） |
 | 3 | **版本硬提示词**（硬编码随版本发布：哪些工具不成熟、本版本能力短板） | 无开关 |
 
 - **挂载点**：`agent/pre-step` waterfall（放行前**必须 `next()`**），把提示行改写进 `decision.messages` 的**本步最前**（不能塞 `inbox.nextStep` —— 宿主 `preStep()` 先 `inbox.claim()` 再跑瀑布，塞队列会晚一步）。
-- **去重三层**：① 台账 `noticeLedger`（指纹 `preset|PLUGIN_VERSION`）；② 会话日志回读 `deliveredRelsFor`（找 `source.plugin==='whale_craft' && form==='notice'` 的历史消息）；③ `inbox` 队列同名检查。
+- **去重三层**：① 台账 `noticeLedger`（指纹 `preset|PLUGIN_VERSION`）；② 会话日志回读 `deliveredRelsFor`（找 `source.plugin==='dsh_minecraft_bot' && form==='notice'` 的历史消息）；③ `inbox` 队列同名检查。
 - **切出 MC 模式**时 `withdrawAgentsMdNotices`：清队列 + 清台账 + 划 `since` 时间线。
 - **为什么叫 RULES.md 不叫 AGENTS.md**：DSH 会把 `AGENTS.md`/`CLAUDE.md` 当工作区指令自动注入任何碰过该目录的会话（不受插件开关控制）。改名的效果 = 注入只剩插件这一条通道、且只对 MC 模式生效。老文件自动迁移进 `RULES.md`，原文件改名 `AGENTS.md.bak-<时间>`（内容不丢、宿主不再认）。
 - **受保护文件对 AI 只读**（RULES.md / AGENTS.md / config.json；文件工具 guard + `MemoryStore` 写方法两条路，判定统一在 `src/protected.mjs`）。`rulesFollowVersion`（默认开，**按工作区**）靠 config.json 的 `rulesVersion` 字段在新版本时整体替换；首次见到无记录只记版本不覆盖。旧工作区单独的 `.rules-version` 标记会在"备好记忆目录"时机迁入 config.json 并删除（迁移见 `src/wsconfig.mjs`）。
@@ -115,14 +115,14 @@ DSH host 进程
 
 ## 7. MC模式 / MC+模式 与权限隔离（三档）
 
-判据：`isMcModeAgent`（preset ∈ `mcModePresets`，默认 `['minecraft','minecraft-plus','whale_craft']`）；
+判据：`isMcModeAgent`（preset ∈ `mcModePresets`，默认 `['minecraft','minecraft-plus','dsh_minecraft_bot']`）；
 变体：`isMcPlusAgent`（再 ∈ `mcPlusPresets`，默认 `['minecraft-plus']`）。两个 preset 由本包
 `presets/*.patch.yml` 声明提供（见 §8）。工具策略是一个三档状态机（`mcPolicyKind` + `mcRestrictRelease`，
 kind 变化先 release 再套新）：
 
 | 档 | preset | 可见性（`applyMcModePolicy`） | guard（每次调用现场判，切模式自愈） |
 | --- | --- | --- | --- |
-| `mc` | minecraft | `restrict({allow})` 白名单：mc_*（按 `hideAdminTools` 去 / 留 `mc_admin_*`）+ mc_kit_* + 文件工具（`MC_FILE_TOOLS`）+ **后台任务/目标/待办**（`job_*` / `get_goal` / `create_goal` / `update_goal` / `todo_write`，`MC_EXTRA_HOST_TOOLS`）+ **联网搜索**（宿主 `web_search`，`MC_WEB_SEARCH_TOOL`，按 `allowWebSearch`，默认开）+ `mcMode.allowOtherTools`；`mc_debug_*` 仅当 `exposeDebugTools` 开时才进；`mc_kit_web_fetch` 仅当 `webFetchEnabled` 开时才进（**不含** `present`：MC 模式不暴露文件交付，走 `mc_kit_express`） | ① admin 硬拒 ② `exposeDebugTools` 关时拒 `mc_debug_*` ③ `allowWebSearch` 关时拒 `web_search` ④ **`webFetchEnabled` 关 / 域名不在表里时拒 `mc_kit_web_fetch`**（两档 MC 都过）⑤ 凭据/secrets 硬拒 ⑥ 受保护文件只读 ⑦ 文件 jailed `.whale-craft/`（空路径也算越界）⑧ present 限会话工作区（若经 allowOtherTools 放行） |
+| `mc` | minecraft | `restrict({allow})` 白名单：mc_*（按 `hideAdminTools` 去 / 留 `mc_admin_*`）+ mc_kit_* + 文件工具（`MC_FILE_TOOLS`）+ **后台任务/目标/待办**（`job_*` / `get_goal` / `create_goal` / `update_goal` / `todo_write`，`MC_EXTRA_HOST_TOOLS`）+ **联网搜索**（宿主 `web_search`，`MC_WEB_SEARCH_TOOL`，按 `allowWebSearch`，默认开）+ `mcMode.allowOtherTools`；`mc_debug_*` 仅当 `exposeDebugTools` 开时才进；`mc_kit_web_fetch` 仅当 `webFetchEnabled` 开时才进（**不含** `present`：MC 模式不暴露文件交付，走 `mc_kit_express`） | ① admin 硬拒 ② `exposeDebugTools` 关时拒 `mc_debug_*` ③ `allowWebSearch` 关时拒 `web_search` ④ **`webFetchEnabled` 关 / 域名不在表里时拒 `mc_kit_web_fetch`**（两档 MC 都过）⑤ 凭据/secrets 硬拒 ⑥ 受保护文件只读 ⑦ 文件 jailed `.minecraft-bot/`（空路径也算越界）⑧ present 限会话工作区（若经 allowOtherTools 放行） |
 | `mc-plus` | minecraft-plus | **不套白名单**（组成=标准全表，mc/mckit 走全局注册直接可见；`mc_admin_*` 也可见）；仅当 `exposeDebugTools` 关时 `restrict({deny})` 掉 `mc_debug_*`。**联网搜索不受 `allowWebSearch` 影响**（全表里本来就有 tool-web） | 仅凭据/secrets 硬拒（文件全工作区；受保护文件按宿主默认） |
 | `other` | 其余 | `restrict({deny})`：`mc_*`（mc_admin_* 除外）+ `mc_kit_*` 从可见面摘掉 | **拒调** mc_* / mc_kit_*（mc_admin_* 除外）—— "不再给其他模式暴露"的第二道锁 |
 
@@ -150,13 +150,13 @@ kind 变化先 release 再套新）：
   `preset-minecraft-plus`）覆盖 `config.plugins`；不要直接改包内文件（包更新会覆盖）。
 
 **遗留（旧宿主）**：`ensureMcPreset` 那套（`svc.copy` 整目录复制 + 改 `agent.cordis.yml` +
-`.whale-craft.json` 自建标记 + `MC_PRESET_SPEC` 重建 + persona 键名 `prefix/text` 自检）只对
+`.minecraft-bot.json` 自建标记 + `MC_PRESET_SPEC` 重建 + persona 键名 `prefix/text` 自检）只对
 **有目录式 preset / authoring copy 的旧宿主**有意义 —— 在新宿主上 `svc.copy` 不存在，整段 no-op。
 相关纯函数（`planPresetAction`/`pickPresetTarget`/…）与测试都还在，见 history.md / src-modules.md。
 
 ## 9. HTTP 面与安全
 
-**信任栅栏**（`isTrustedRequest`，照抄 dsh-serve 的同款）：Host 必须回环或 ∈ `webRuntime.trustedHosts`；`Sec-Fetch-Site: cross-site` 拒；带 Origin 时 host 必须一致。非信任一律 403。两条顶层前缀路由各自独立过栅栏：`/api/mc/*` 与 `/api/whale-craft/express/*`（后者**只在 web 模式且文件分享开启时**服务；desktop 模式走自己的独立端口，见 §10）。
+**信任栅栏**（`isTrustedRequest`，照抄 dsh-serve 的同款）：Host 必须回环或 ∈ `webRuntime.trustedHosts`；`Sec-Fetch-Site: cross-site` 拒；带 Origin 时 host 必须一致。非信任一律 403。两条顶层前缀路由各自独立过栅栏：`/api/mc/*` 与 `/api/minecraft-bot/express/*`（后者**只在 web 模式且文件分享开启时**服务；desktop 模式走自己的独立端口，见 §10）。
 
 | 方法 + 路径 | 用途 |
 | --- | --- |
@@ -174,12 +174,12 @@ kind 变化先 release 再套新）：
 | POST `/api/mc/lan` | 「连接到MC」的**局域网探测**（后端多播监听 + 逐个 `statusPing` 拿在线人数；**不走闸门**） |
 | POST `/api/mc/connect` | 「连接到MC」点连接：**注入 + `agent.steer` 让该会话跑一轮**（**不自己连**，由 LLM 调 `mc_connect`）；**手动**连接才记历史。`asUser:true`（新对话页）→ 投**玩家消息**（`kind:'user'`，正文前 `[system] `）；否则走插件提示行 |
 | POST `/api/mc/branch-plus` | 「创建MC+分支」：**fork 一条分支 + 把新会话改成 MC+**（`{sessionId, messageId}`；`messageId` 反查 `atSeq` 对齐原生落点）。见下 |
-| GET/HEAD `/api/whale-craft/express/<工作区uuid>/<相对路径>` | 发布区文件（**仅 web 模式且分享开启**） |
+| GET/HEAD `/api/minecraft-bot/express/<工作区uuid>/<相对路径>` | 发布区文件（**仅 web 模式且分享开启**） |
 | GET `/api/mc/express/port?port=` | desktop 设置页的端口占用自检（临时 bind 探测；当前已监听端口算"可用"） |
 
 - **设置类 API 的错误形态统一 200 + `{ok:false, error, needUserAction?, hint?}`**（前端 `apiFetch` 要求 `payload.ok===true`）。
 - **「连接到MC」的注入时机（2026-10-04）**：`/api/mc/connect` 只**注入 + 唤醒**——`sess.interruptWait('connect')` → `agent.steer(message)`（空闲起一轮、运行中插话）。正文由 `src/connect-prompt.mjs` 组装（追加插槽 `CONNECT_PROMPT_APPENDERS`）。历史只记 `via!=='lan'` 的地址（`src/serverhistory.mjs`，全局 `servers.json`）。
-  ⚠️ **对话中**用插件提示行（`source.kind='plugin:whale_craft'` + notice，**绝不冒充用户**）；**新对话页**（`asUser:true`）改用**玩家消息**（`kind:'user'` + 正文前 `[system] `）——用户明确要求的例外，因为在全新会话里插件提示行不触发那一轮。
+  ⚠️ **对话中**用插件提示行（`source.kind='plugin:dsh_minecraft_bot'` + notice，**绝不冒充用户**）；**新对话页**（`asUser:true`）改用**玩家消息**（`kind:'user'` + 正文前 `[system] `）——用户明确要求的例外，因为在全新会话里插件提示行不触发那一轮。
 - **「创建MC+分支」的改模式机制（2026-10-05）**：`POST /api/mc/branch-plus` 在宿主侧做三件事——
   ① `ctx.get('sessionController').fork({sessionId, atSeq})`；② 把新会话的 preset 改成 `minecraft-plus`；
   ③ 标题 +1（对齐原生分支「标题 (2)」，失败无妨）。`atSeq` 由 `messageId` 反查（`sessionQuery.observeSession`
@@ -201,16 +201,16 @@ kind 变化先 release 再套新）：
 
 | 目录 | 谁能拿 | 用途 |
 | --- | --- | --- |
-| `<工作区>/.whale-craft/.out/` | 谁都拿不到 | 默认输出（`mc_map image`、`mc_kit_image` 落盘） |
-| `<工作区>/.whale-craft/.express/` | 取决于文件分享开关 | 发布区（**目录即白名单**，支持子目录） |
+| `<工作区>/.minecraft-bot/.out/` | 谁都拿不到 | 默认输出（`mc_map image`、`mc_kit_image` 落盘） |
+| `<工作区>/.minecraft-bot/.express/` | 取决于文件分享开关 | 发布区（**目录即白名单**，支持子目录） |
 
 - **配置按宿主模式拆成两套键、相互独立**（2026-10-07 用户定）：从哪种模式（宿主 profile）进来就只认哪套。
   设 `mode` = `ctx.get('profileContext')?.name === 'desktop' ? 'desktop' : 'web'`（取不到/老宿主按 web 兜底）。
-  - **web 模式**（`expressWebEnabled` + `expressWebBase`）：回 `base + /api/whale-craft/express/<uuid>/<rel>` 完整 URL；
+  - **web 模式**（`expressWebEnabled` + `expressWebBase`）：回 `base + /api/minecraft-bot/express/<uuid>/<rel>` 完整 URL；
     缺 base 回 `EXPRESS_NEED_BASE_TEXT`（报错不抛异常）。文件走**宿主 webServer** 的那条路由。
   - **desktop 模式**（`expressDesktopEnabled` + `expressDesktopPort`，默认 16049）：插件**自起一个只监听
     localhost 的 http 服务**（`ExpressShareServer`，`src/express-server.mjs`；宿主 `webServer` 那条路由在 desktop 下不服务），
-    地址 `http://localhost:<port>/<uuid>/<rel>`（**无** `/api/whale-craft/express` 前缀）；端口起不来（占用/失败）
+    地址 `http://localhost:<port>/<uuid>/<rel>`（**无** `/api/minecraft-bot/express` 前缀）；端口起不来（占用/失败）
     回 `EXPRESS_PORT_BUSY_TEXT(port)`。仅"启用且服务在监听"才真正开放。
 - 关（默认）→ `mc_kit_express` 恒回 `EXPRESS_OFF_TEXT`（让 AI 把绝对路径给用户），服务不开（访问即 404）。
 - `syncExpressServer`：desktop 期望态 = 启用 ? 端口 : 关闭；PATCH 或启动时对齐（换端口/开关即重启），串行化避免并发 bind；卸载 `stop()`。
@@ -227,14 +227,14 @@ kind 变化先 release 再套新）：
 
 | 东西 | 位置 |
 | --- | --- |
-| 全局配置 / 账户元数据 / 日志 / 会话锁 | `$DSH_HOME/whale_craft/`（`config.json` / `accounts.json` / `logs/whale-craft.log` / `.instance.<会话>.json`） |
-| 凭据（password/token） | 宿主凭据服务 `$DSH_HOME/.credentials.yaml`（key=`whale-craft/<innerID>`；**绝不降级写明文**） |
-| 记忆 / 行事准则 / 输出 / 发布区 | `<会话工作区>/.whale-craft/`（`README.md` / `RULES.md` / `config.json` / `.out/` / `.express/`） |
-| 按工作区的配置（提示词三开关 + 版本标记） | `<会话工作区>/.whale-craft/config.json`（旧版单独的 `.rules-version` 标记会迁入并删除） |
+| 全局配置 / 账户元数据 / 日志 / 会话锁 | `$DSH_HOME/dsh_minecraft_bot/`（`config.json` / `accounts.json` / `logs/minecraft-bot.log` / `.instance.<会话>.json`） |
+| 凭据（password/token） | 宿主凭据服务 `$DSH_HOME/.credentials.yaml`（key=`minecraft-bot/<innerID>`；**绝不降级写明文**） |
+| 记忆 / 行事准则 / 输出 / 发布区 | `<会话工作区>/.minecraft-bot/`（`README.md` / `RULES.md` / `config.json` / `.out/` / `.express/`） |
+| 按工作区的配置（提示词三开关 + 版本标记） | `<会话工作区>/.minecraft-bot/config.json`（旧版单独的 `.rules-version` 标记会迁入并删除） |
 | 调试实例的一切 | `.dev/home/`（隔离 DSH_HOME，gitignored） |
 
-环境变量阀门：`MC_LOG`（日志路径）、`DSH_HOME`、`WHALE_CRAFT_DIR` / `WHALE_CRAFT_STATE_DIR`（自检/隔离用状态目录）、`WHALE_CRAFT_NO_PRESET_WRITE`（禁止写 preset）。
-（记忆根**没有**环境变量阀门：固定 `<会话工作区>/.whale-craft`，调试也用专门的调试工作区 —— 2026-10-08 删掉了旧的 `WHALE_CRAFT_MEMORY_DIR`。）
+环境变量阀门：`MC_LOG`（日志路径）、`DSH_HOME`、`MCBOT_DIR` / `MCBOT_STATE_DIR`（自检/隔离用状态目录）、`MCBOT_NO_PRESET_WRITE`（禁止写 preset）。
+（记忆根**没有**环境变量阀门：固定 `<会话工作区>/.minecraft-bot`，调试也用专门的调试工作区 —— 2026-10-08 删掉了旧的 `MCBOT_MEMORY_DIR`。）
 
 ## 13. 宿主耦合点 / DSH 升级敏感清单
 
@@ -262,13 +262,13 @@ kind 变化先 release 再套新）：
 - 语言 id 内置就是 `zh` / `en`（`resolveText` 按小写键查）⇒ 中文文件必须叫 `zh.json`，`zh-CN.json` 永不命中。
 - 图标 = `package.json.icon`（包内相对路径；SVG/PNG/JPEG/WebP，≤256 KiB，转 data URL）。
 - 🔴 locale 文件必须**逐文件**写进 `exports` 才能被解析到（模式写法 `"./locale/*": "./locale/*.json"` 会把 `en.json` 吞成 `en.json.json`，静默失效——2026-10-02 实测踩过）；漏了 = 静默回退成包名。
-- 本仓库现状：`locale/en.json` + `locale/zh.json`（Whale Craft / 鲸鱼工艺），selfcheck 逐文件对账。
+- 本仓库现状：`locale/en.json` + `locale/zh.json`（Minecraft Bot / Minecraft Bot），selfcheck 逐文件对账。
 
 **设置入口契约**（浏览器端 client 插槽；完整契约表内嵌在运行时 `dsh-cordis-client-runner`，可搜索查任意插槽）：
 
 - `plugins.bundle.config`（keyed，key = 包名）：bundle 详情页的配置区——契约明确"插件自己的配置"放这里，最贴合。
 - `settings.plugins.tab`（list）：在 设置→内置插件 页加一个标签页（库存页 id `'all'` 是样例）。
 - `plugins.detail.actions` / `.badge` / `.section`（list）：详情页按钮/徽章/区块；组件收到 `subject`，不是本包时渲染 null。
-- `pluginNavigation.openBundle('whale_craft')`：从任何地方跳到插件页并打开指定包（反向入口）。
+- `pluginNavigation.openBundle('dsh_minecraft_bot')`：从任何地方跳到插件页并打开指定包（反向入口）。
 - 槽组件可用标准 hooks：`useSessions` / `useWorkspaces` / `usePanelInfo` / `useResource` 等。
 - ✅ 插件详情页的「设置」入口（`plugins.detail.actions`，root 作用域、无会话/工作区）：模态框走**无工作区模式** —— 全局项可编辑，工作区项隐藏/只读，详见 [client-ui.md](client-ui.md)。

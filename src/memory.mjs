@@ -1,17 +1,17 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / memory.mjs —— 麦块记忆（v3：固定 .whale-craft + AI 维护的 README.md 索引）
+ * dsh_minecraft_bot / memory.mjs —— 麦块记忆（v3：固定 .minecraft-bot + AI 维护的 README.md 索引）
  * ============================================================================
  * 用户 2026-09-16 的要求：
- *   · 固定记录在**工作区下的 `.whale-craft` 文件夹**；
+ *   · 固定记录在**工作区下的 `.minecraft-bot` 文件夹**；
  *   · **仍是让 AI 用 `README.md` 记录索引**（插件不再自动生成索引文件）；
  *   · 建子文件夹记录各服务器相关文件；
  *   · MCAI 可以在记忆文件夹里**读写任何格式文件**（可以把自己读到的图片保存），
  *     但**不能运行脚本**之类（这个模块本身不执行任何东西：没有 spawn、没有 shell）。
  *
- * 目录结构（默认 `<工作区>/.whale-craft/`）：
+ * 目录结构（默认 `<工作区>/.minecraft-bot/`）：
  *
- *   .whale-craft/
+ *   .minecraft-bot/
  *   ├── README.md              ← **AI 维护**的总索引（插件只读它、不重写）
  *   ├── _global/               ← 通用记忆（不限服务器）
  *   └── mc.example.com/          ← 每个服务器一个文件夹
@@ -24,7 +24,7 @@
  *    **目录约定**仍在：agent 按 RULES.md 的指示自行用宿主文件工具阅读/维护它，插件不注入。
  *
  * 安全：所有路径过 safePath()——拒绝绝对路径、`..`、超深路径，且解析后必须仍在
- * `.whale-craft/` 内。记忆工具**不是**通用文件编辑器的替身，边界就是这个文件夹。
+ * `.minecraft-bot/` 内。记忆工具**不是**通用文件编辑器的替身，边界就是这个文件夹。
  * 根级的受保护文件（RULES.md / AGENTS.md / config.json，见 src/protected.mjs）**可读不可写**：
  * safePath 放行（标记 protected），写类方法显式拒绝。
  * ============================================================================
@@ -57,9 +57,9 @@ const MIME_BY_EXT = {
 
 export class MemoryStore {
   /**
-   * @param {string} root 记忆根目录（绝对路径，通常是 <工作区>/.whale-craft）
+   * @param {string} root 记忆根目录（绝对路径，通常是 <工作区>/.minecraft-bot）
    * @param {{create?: boolean}} [opts] `create:false` = **只读**，不在构造时建目录。
-   *   用户 2026-09-16：`.whale-craft/` 不该被"顺手建出来"——建它只发生在
+   *   用户 2026-09-16：`.minecraft-bot/` 不该被"顺手建出来"——建它只发生在
    *   "首次发起 MC 模式会话"与"点开「MC设置」"这两个时机（见 index.js `ensureMemoryRoot`）。
    */
   constructor (root, { create = true } = {}) {

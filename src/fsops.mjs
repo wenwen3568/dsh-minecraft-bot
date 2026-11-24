@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / fsops.mjs —— `mc_kit_fs` 的文件系统操作（**纯函数、只吃路径**，便于自检单测）
+ * dsh_minecraft_bot / fsops.mjs —— `mc_kit_fs` 的文件系统操作（**纯函数、只吃路径**，便于自检单测）
  * ============================================================================
  * 用户 2026-10-08 定的语义（见 dev-docs/tools/mc-tools.md / prompt/tool_descriptions.md）：
  *   · action：copy / move / delete / make_dir，**都递归**；
@@ -10,7 +10,7 @@
  *   · **目标父目录不存在会自动创建**（copy / move 都是）；
  *   · **保留符号链接（不跟随）**：copy 把链接原样复制成链接，delete 删链接本身；
  *   · `overwrite=false`（默认）：目标已存在 → 报错，不覆盖；
- *   · 沙箱：`root`（MC=.whale-craft，MC+=工作区）；相对路径以 `base`（工作区根）为基准；
+ *   · 沙箱：`root`（MC=.minecraft-bot，MC+=工作区）；相对路径以 `base`（工作区根）为基准；
  *     沙箱根与工作区根**本身**不能被 move 的 from / delete 选中；
  *   · 受保护文件（RULES.md/AGENTS.md/config.json）与凭据路径**不可删改**；
  *   · **失败在动手前停止**（预检由调用方逐项做完才执行）；错误一律**中文**、不透出 Node/系统本地化文案。

@@ -1,11 +1,11 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / core.mjs —— Minecraft 无头机器人核心（不依赖 DSH，可独立运行与测试）
+ * dsh_minecraft_bot / core.mjs —— Minecraft 无头机器人核心（不依赖 DSH，可独立运行与测试）
  * ---------------------------------------------------------------------------
  * 从 mc-bridge/server.mjs 抽出来：连接/保活/世界读取/移动/挖掘/事件分发。
  * 供两处使用：
- *   1. plugins/whale_craft/index.js（DSH 宿主插件，机器人跑在 DSH 进程里）
- *   2. whale_craft/standalone.mjs（脱离 DSH 单独跑，调试用）
+ *   1. plugins/dsh_minecraft_bot/index.js（DSH 宿主插件，机器人跑在 DSH 进程里）
+ *   2. dsh_minecraft_bot/standalone.mjs（脱离 DSH 单独跑，调试用）
  *
  * 依赖：`mineflayer` —— **装哪一份由部署方决定**（官方 npm 版，或本机 link 进来的打过补丁的树）。
  *   🔴 插件不指定版本、不打包、不打补丁（2026-09-16 用户决策）：所以这里只写裸包名，
@@ -178,9 +178,9 @@ export const DEFAULTS = {
   chatHistory: 300,
   /**
    * 日志落盘位置。🔴 **默认不写插件包目录**（装进 `node_modules/` 后那可能是只读的、
-   * 升级时也会被覆盖）：默认写 `$DSH_HOME/whale_craft/logs/`，可用 `MC_LOG` 覆盖。
+   * 升级时也会被覆盖）：默认写 `$DSH_HOME/dsh_minecraft_bot/logs/`，可用 `MC_LOG` 覆盖。
    */
-  logFile: process.env.MC_LOG ?? join(resolveHarnessHome(), 'whale_craft', 'logs', 'whale-craft.log'),
+  logFile: process.env.MC_LOG ?? join(resolveHarnessHome(), 'dsh_minecraft_bot', 'logs', 'minecraft-bot.log'),
 }
 
 /** 宿主家目录：`$DSH_HOME` → `~/.dsh`（与宿主 `resolveDshHome` 同一套规矩） */
@@ -223,11 +223,11 @@ function normalizeBaseUrl (url) {
 
 /**
  * 独立落盘日志（不需要 McBot 实例）。
- * 用途：插件加载/卸载这种"机器人都还没有"的时刻也要在 whale-craft.log 留痕——
+ * 用途：插件加载/卸载这种"机器人都还没有"的时刻也要在 minecraft-bot.log 留痕——
  * 排查"插件到底加载了没"全靠这一行（曾因为没有它而误判成"工具没注册"）。
  */
 export function logLine (...args) {
-  const line = `[whale_craft ${new Date().toISOString().slice(11, 19)}] ${args.join(' ')}`
+  const line = `[dsh_minecraft_bot ${new Date().toISOString().slice(11, 19)}] ${args.join(' ')}`
   try {
     if (!existsSync(dirname(DEFAULTS.logFile))) mkdirSync(dirname(DEFAULTS.logFile), { recursive: true })
     appendFileSync(DEFAULTS.logFile, line + '\n')
@@ -480,7 +480,7 @@ export class McBot extends EventEmitter {
   }
 
   log (...args) {
-    const line = `[whale_craft ${new Date().toISOString().slice(11, 19)}] ${args.join(' ')}`
+    const line = `[dsh_minecraft_bot ${new Date().toISOString().slice(11, 19)}] ${args.join(' ')}`
     this.emit('log', line)
     try { appendFileSync(this.cfg.logFile, line + '\n') } catch {}
   }
@@ -1069,7 +1069,7 @@ export class McBot extends EventEmitter {
    * 单实例锁文件（连服时才有，断开即删）。
    *
    * 🔴 默认**不写插件包目录**（与日志同一个道理）：装进 `node_modules/` 后那可能是只读的，
-   *    升级时也会被覆盖。优先用调用方给的 `lockDir`（= `$DSH_HOME/whale_craft/`），
+   *    升级时也会被覆盖。优先用调用方给的 `lockDir`（= `$DSH_HOME/dsh_minecraft_bot/`），
    *    只有没给时才退回包目录（老行为，保底能用）。
    */
   get lockFile () {

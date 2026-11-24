@@ -1,15 +1,15 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / agentsmd.mjs —— 本模式的「行事准则」RULES.md
+ * dsh_minecraft_bot / agentsmd.mjs —— 本模式的「行事准则」RULES.md
  * ============================================================================
  * 用户 2026-09-16 的要求：
- *   · 不再注入工作区的 AGENTS.md，改为注入 **`.whale-craft/RULES.md`**（本文件就是它的默认内容）
+ *   · 不再注入工作区的 AGENTS.md，改为注入 **`.minecraft-bot/RULES.md`**（本文件就是它的默认内容）
  *   · Master 可以在「MC设置 → 提示词」页里编辑它，并有**恢复默认**
  *   · **MCAI 不能读写它**（它是给 AI 看的规矩，不是给 AI 改的）
  *
  * 两份内容：
  *   · **默认**：打包在插件里的这份（`DEFAULT_AGENTS_MD`）
- *   · **自定义**：`<工作区>/.whale-craft/RULES.md` —— 存在就用它，删掉就回到默认
+ *   · **自定义**：`<工作区>/.minecraft-bot/RULES.md` —— 存在就用它，删掉就回到默认
  * ============================================================================
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
@@ -23,7 +23,7 @@ const FILE = 'RULES.md'
  * 🔴 2026-09-16 改名原因（用户抓到的致命 bug）：文件名原来叫 `AGENTS.md`，而**宿主的
  *    `@deepseek-ai/dsh-agent-instructions` 恰好把 `AGENTS.md` 当候选指令文件**
  *    （`DEFAULT_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.md', 'CLAUDE.md']`）：
- *    任何会话只要 `read`/`write`/`edit` 过 `.whale-craft/` 下的文件，宿主就会把这个目录里的
+ *    任何会话只要 `read`/`write`/`edit` 过 `.minecraft-bot/` 下的文件，宿主就会把这个目录里的
  *    `AGENTS.md` 当**工作区指令**注入**那个会话** —— MC 会话被投两遍，非 MC 会话也被污染，
  *    而且我们那个"注入本提示词"的开关**关不掉**它。
  *    改叫 `RULES.md`（不在宿主候选名里）之后，注入只剩我们这一条通道。
@@ -33,7 +33,7 @@ const LEGACY_FILE = 'AGENTS.md'
 const MAX_BYTES = 128 * 1024
 
 /** 默认「行事准则」（2026-09-18 第五版：用户给的全文 —— 在上一版「建筑须知」之上新增「较长思考」整节；「建筑须知」补"先大体结构 / 每阶段回话 / 完工复盘"） */
-export const DEFAULT_AGENTS_MD = `# Whale Craft 行事准则
+export const DEFAULT_AGENTS_MD = `# Minecraft Bot 行事准则
 
 ## 宗旨
 
@@ -49,11 +49,11 @@ export const DEFAULT_AGENTS_MD = `# Whale Craft 行事准则
 
 ## 记忆
 
-你可以在 .whale-craft/ 文件夹（即本 RULES.md 文件所在文件夹）下记录文档、svg图像等文件来留存记忆。在必要时你需要手动阅读 .whale-craft/README.md 来跟进对所有 Whale Craft 实例重要的信息。同理，这类信息你也应当记录在该 README.md 文件中。
+你可以在 .minecraft-bot/ 文件夹（即本 RULES.md 文件所在文件夹）下记录文档、svg图像等文件来留存记忆。在必要时你需要手动阅读 .minecraft-bot/README.md 来跟进对所有 Minecraft Bot 实例重要的信息。同理，这类信息你也应当记录在该 README.md 文件中。
 
-一般地，你需要分门别类地整理信息，将不同分组的信息放在 .whale-craft/ 的不同子文件夹下。比如，按照用户让你进入的不同服务器分组。分组的索引同样要记录在 .whale-craft/README.md 中。
+一般地，你需要分门别类地整理信息，将不同分组的信息放在 .minecraft-bot/ 的不同子文件夹下。比如，按照用户让你进入的不同服务器分组。分组的索引同样要记录在 .minecraft-bot/README.md 中。
 
-你不能修改 .whale-craft/RULES.md，即本文件。
+你不能修改 .minecraft-bot/RULES.md，即本文件。
 
 ## 兼容性
 
@@ -125,7 +125,7 @@ export function legacyAgentsMdPath (dir) { return join(dir, LEGACY_FILE) }
 
 /**
  * 「随版本更新」（用户 2026-09-17 定，**默认启用**）：插件版本一变，就用**本版本的默认准则**
- * 替换 `.whale-craft/RULES.md` 里那份（用户自己改过的也换掉 —— 这正是这个开关要的语义）。
+ * 替换 `.minecraft-bot/RULES.md` 里那份（用户自己改过的也换掉 —— 这正是这个开关要的语义）。
  *
  * 四种情形：
  *   · `RULES.md` 不存在 → 建默认 + 记版本（`created`）；
@@ -135,7 +135,7 @@ export function legacyAgentsMdPath (dir) { return join(dir, LEGACY_FILE) }
  *   · 标记 ≠ 当前版本 但开关**关** → 只把标记更新到当前版本（`kept`）——
  *     这样以后再把开关打开也**不会翻旧账**。
  *   · 标记 = 当前版本 → 什么都不做（`kept`）。
- * @param {string} dir 记忆根（`<工作区>/.whale-craft`）
+ * @param {string} dir 记忆根（`<工作区>/.minecraft-bot`）
  * @param {string} version 当前插件版本
  * @param {{follow?:boolean}} [opts] `follow` = 「随版本更新」开关（缺省视为开；来自该工作区的 config.json）
  * @returns {{action:'created'|'replaced'|'kept'|'marked', from:string|null, to:string, error?:string}}
@@ -169,7 +169,7 @@ export function syncRulesVersion (dir, version, { follow = true } = {}) {
 }
 
 /**
- * 把老的 `.whale-craft/AGENTS.md` 迁到新名字（**幂等**，只在需要时动）。
+ * 把老的 `.minecraft-bot/AGENTS.md` 迁到新名字（**幂等**，只在需要时动）。
  *
  * 规则（用户 2026-09-16）：
  *   · 新文件不存在、老文件在 → 把老内容写进 `RULES.md`，再把老文件**改名为带时间戳的备份**

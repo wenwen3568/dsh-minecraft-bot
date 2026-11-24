@@ -16,7 +16,7 @@
  * 宿主的 `createUserMessage`：`role` / `content` / `source` / `id`），
  * 让"能不能注入"与运行环境无关。解析失败会**记一行日志**（不再静默）。
  *
- * 🔴 2026-10-04：`source.kind` 必须是 **v4 规范值 `plugin:whale_craft`**——
+ * 🔴 2026-10-04：`source.kind` 必须是 **v4 规范值 `plugin:dsh_minecraft_bot`**——
  *    v4 会话格式**拒绝**裸露的 `kind:'plugin'`（"format v4 message requires a producer-owned
  *    source kind"），而且宿主 `createUserMessage` 对传进来的 source **原样透传**、不会帮我们修正。
  *    规范形态 = 宿主 v3→v4 迁移的产出：`{ kind: 'plugin:<插件名>', form, summary }`（`plugin` 字段随之去掉）。
@@ -39,7 +39,7 @@ export const newMessageId = () => {
 export const builtinUserMessage = (input) => ({
   role: 'user',
   content: Array.isArray(input?.content) ? input.content : [],
-  source: input?.source ?? { kind: 'plugin:whale_craft' },
+  source: input?.source ?? { kind: 'plugin:dsh_minecraft_bot' },
   id: input?.id ?? newMessageId(),
 })
 

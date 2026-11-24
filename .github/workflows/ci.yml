@@ -53,22 +53,22 @@ jobs:
       - name: 核对 tarball 该有的都有、不该有的都没有
         run: |
           set -euo pipefail
-          tar -tzf whale_craft-*.tgz | sort > files.txt
+          tar -tzf dsh_minecraft_bot-*.tgz | sort > files.txt
           cat files.txt
           for f in package/index.js package/client.js package/selfcheck.mjs \
                    package/cordis.patch.yml package/LICENSE package/README.md \
                    package/tools/check-core.mjs; do
             grep -qx "$f" files.txt || { echo "::error::tarball 缺文件：$f"; exit 1; }
           done
-          if grep -qE 'node_modules|/logs/|accounts\.json|config\.json|\.whale-craft' files.txt; then
+          if grep -qE 'node_modules|/logs/|accounts\.json|config\.json|\.minecraft-bot' files.txt; then
             echo "::error::tarball 里混进了运行期产物"; exit 1
           fi
-      - name: 干净环境回归（pack → 独立目录 npm install → import('whale_craft') 必须成功）
+      - name: 干净环境回归（pack → 独立目录 npm install → import('dsh_minecraft_bot') 必须成功）
         # 本机/CI 的 link 安装永远测不出「宿主包解析不到」（GitHub issue #5），只有干净安装能复现用户环境。
         # 反证：把 index.js 改回静态 import 两个宿主包，这一步必须变红。
         run: node tools/check-standalone-import.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: whale_craft-tarball
+          name: dsh_minecraft_bot-tarball
           path: '*.tgz'
           if-no-files-found: error

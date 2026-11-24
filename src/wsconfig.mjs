@@ -1,12 +1,12 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / wsconfig.mjs —— **按工作区**的配置（`<记忆根>/config.json`）
+ * dsh_minecraft_bot / wsconfig.mjs —— **按工作区**的配置（`<记忆根>/config.json`）
  * ============================================================================
  * 用户 2026-10-03 定：按工作区独立的设置（提示词的版本 + 「MC设置→提示词」页的三个开关）
- * 统一存到工作区下的 `config.json`（默认 `<工作区>/.whale-craft/config.json`），
+ * 统一存到工作区下的 `config.json`（默认 `<工作区>/.minecraft-bot/config.json`），
  * 取代原来散在两处的存法：
  *   · 提示词版本标记原来是独立文件 `.rules-version`（现在迁入 `rulesVersion` 字段）；
- *   · 三个开关原来存在**全局** `$DSH_HOME/whale_craft/config.json`（现在按工作区）。
+ *   · 三个开关原来存在**全局** `$DSH_HOME/dsh_minecraft_bot/config.json`（现在按工作区）。
  *
  * 这个文件对 MC 模式的 AI **可读不可写**（与 RULES.md 同一套保护，见 src/protected.mjs）；
  * 写入只来自插件内部与「MC设置」接口。
@@ -30,7 +30,7 @@ export const LEGACY_VERSION_FILE = '.rules-version'
 /** 三个开关的默认值（= 下放前的全局默认，行为不变） */
 export const WS_DEFAULTS = {
   rulesFollowVersion: true,
-  injectWhaleCraftAgentsMd: true,
+  injectMinecraftBotAgentsMd: true,
   injectWorkspaceAgentsMd: false,
 }
 export const WS_TOGGLE_KEYS = Object.keys(WS_DEFAULTS)

@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / plugins.mjs —— 外部 mineflayer 插件集成层
+ * dsh_minecraft_bot / plugins.mjs —— 外部 mineflayer 插件集成层
  * ============================================================================
  * 目的：把社区那套"能力插件"接进本插件的机器人，而不是让用户自己写脚本。
  *

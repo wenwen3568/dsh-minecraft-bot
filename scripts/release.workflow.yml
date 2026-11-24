@@ -47,10 +47,10 @@ jobs:
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           npm pack
-          tar -xzf whale_craft-*.tgz
-          mv package "whale_craft-${VERSION}"
-          zip -qr "whale_craft-${VERSION}.zip" "whale_craft-${VERSION}"
-          unzip -l "whale_craft-${VERSION}.zip" | tail -3
+          tar -xzf dsh_minecraft_bot-*.tgz
+          mv package "dsh_minecraft_bot-${VERSION}"
+          zip -qr "dsh_minecraft_bot-${VERSION}.zip" "dsh_minecraft_bot-${VERSION}"
+          unzip -l "dsh_minecraft_bot-${VERSION}.zip" | tail -3
 
       - name: 拼更新日志（取 CHANGELOG.md 本版本那一节，不引用 diff）
         run: |
@@ -71,10 +71,10 @@ jobs:
           if (end < 0) end = lines.length
           const section = lines.slice(start, end).join('\n').trim()
           const intro = [
-            `**whale_craft v${version}**`,
+            `**dsh_minecraft_bot v${version}**`,
             '',
             '```bash',
-            'dsh plugin --profile web add github:yzi1b/whale-craft   # 或解压附件后：dsh plugin --profile web add link:<目录>',
+            'dsh plugin --profile web add github:yzi1b/minecraft-bot   # 或解压附件后：dsh plugin --profile web add link:<目录>',
             '```',
             '',
             '装完**重启 DSH**（服务端插件不热重载）。',
@@ -93,7 +93,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
-            whale_craft-*.zip
+            dsh_minecraft_bot-*.zip
 
       # ── 发 npm（配了 NPM_TOKEN 才发）──────────────────────────────────────────
       # 先探 secret 是否存在：没有就**明确跳过并说明**，而不是让这一步红叉。
@@ -118,12 +118,12 @@ jobs:
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           # tag 与版本一致上面已经校验过；这里再防一手"npm 上已经有这个版本"
-          if npm view "whale_craft@${VERSION}" version >/dev/null 2>&1; then
-            echo "::notice::npm 上已经有 whale_craft@${VERSION}，跳过（npm 不允许覆盖同版本）"
+          if npm view "dsh_minecraft_bot@${VERSION}" version >/dev/null 2>&1; then
+            echo "::notice::npm 上已经有 dsh_minecraft_bot@${VERSION}，跳过（npm 不允许覆盖同版本）"
             exit 0
           fi
           # --ignore-scripts：上面「发布前必须全绿」已经跑过 check-core + selfcheck 了，
           # 不加还会经 prepublishOnly 再跑一遍同一套（重复又慢）。prepublishOnly 留着，
           # 是给"裸跑 npm publish"兜底的 —— 不走这条流程的人照样拦得住坏树。
           npm publish --access public --ignore-scripts
-          echo "已发布 https://www.npmjs.com/package/whale_craft/v/${VERSION}"
+          echo "已发布 https://www.npmjs.com/package/dsh_minecraft_bot/v/${VERSION}"

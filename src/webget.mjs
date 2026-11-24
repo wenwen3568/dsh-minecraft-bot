@@ -1,5 +1,5 @@
 /**
- * whale_craft / webget.mjs —— 插件**自己的**公网 HTTP 抓取（`mc_kit_web_fetch` 的唯一出网口）
+ * dsh_minecraft_bot / webget.mjs —— 插件**自己的**公网 HTTP 抓取（`mc_kit_web_fetch` 的唯一出网口）
  * ============================================================================
  * 为什么不用宿主的 `ctx.web`（2026-10-08 用户定："全改成自己的可控逻辑，宿主的强关联就不要了"）
  *   · 宿主 `dsh-web-fetch-http` **拿不到二进制**（`readBody` 先按 content-type 分类，`image/*` 一律
@@ -382,7 +382,7 @@ function requestOnce (url, addresses, signal, maxBytes) {
       headers: {
         // 不带 cookie、不带凭据；不声明 accept-encoding（默认 identity，避免被压缩）
         accept: ACCEPT,
-        'user-agent': 'whale_craft/mc_kit_web_fetch',
+        'user-agent': 'dsh_minecraft_bot/mc_kit_web_fetch',
       },
       lookup: pinnedLookup(addresses),   // 🔴 地址钉死：传输层不再解析
       signal,

@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / express-server.mjs —— 桌面模式的「发布区独立端口」托管服务
+ * dsh_minecraft_bot / express-server.mjs —— 桌面模式的「发布区独立端口」托管服务
  * ============================================================================
  * 用户 2026-10-07 定：桌面版没有稳定可配的 base ⇒ 插件**自起一个只监听 localhost 的 http 服务**，
  * 直接托管 `.express/` 文件，地址 `http://localhost:<port>/<工作区uuid>/<剩余路径>`。

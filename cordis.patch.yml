@@ -1,10 +1,10 @@
 # ============================================================================
-# whale_craft —— DSH bundle patch（插件**自带**的挂载声明）
+# dsh_minecraft_bot —— DSH bundle patch（插件**自带**的挂载声明）
 # ============================================================================
 # 这就是"标准 DSH 插件"的样子：包自己声明要往 profile 的配置树里插什么，
 # profile 只要在 `dsh.profile.bundles` 里列出本包名即生效，不必手改 profile 的 patch：
 #
-#   dsh plugin --profile web add link:whale_craft
+#   dsh plugin --profile web add link:dsh_minecraft_bot
 #
 # 组成顺序（packages/boot/app-boot/src/profile.ts）：
 #   每个 bundle 的 patch 按 `dsh.profile.bundles` 顺序叠 → 再叠 profile 自己的 cordis.patch.yml
@@ -12,5 +12,5 @@
 # ============================================================================
 
 - insert:
-    - id: whale_craft
-      name: whale_craft
+    - id: dsh_minecraft_bot
+      name: dsh_minecraft_bot

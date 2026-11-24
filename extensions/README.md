@@ -1,4 +1,4 @@
-# whale_craft 扩展点
+# dsh_minecraft_bot 扩展点
 
 **给其他 Agent 用**：想给麦块模式加能力，不必改 `index.js` —— 往这个目录丢一个 `.mjs` 文件即可。
 
@@ -36,8 +36,8 @@ export async function apply(api) {
 | `getSession(exec)` | 按 `exec.agent.id` 路由到当前会话的 `McSession`（含 `bot` / `events` / `watchdog`） |
 | `registry` | `McRegistry`：`peek(id)` / `listSessions()` / `destroy(id)` |
 | `ensureWatchdog(ctx, sess, agent)` | 拿/建看门狗 |
-| `memory` | `MemoryStore`：记忆树增删改查（`list` / `read` / `write` / `append` / `put` / `delete` / `search`），根目录 `.whale-craft/` |
-| `logLine(...)` | 写 `whale_craft/logs/whale-craft.log`（插件加载期也能用） |
+| `memory` | `MemoryStore`：记忆树增删改查（`list` / `read` / `write` / `append` / `put` / `delete` / `search`），根目录 `.minecraft-bot/` |
+| `logLine(...)` | 写 `dsh_minecraft_bot/logs/minecraft-bot.log`（插件加载期也能用） |
 | `Watchdog` | 看门狗类（要自己造一个时用） |
 
 ## 规矩
@@ -49,7 +49,7 @@ export async function apply(api) {
    一个卡住的工具会让整轮 turn / 停止按钮 / 插话全部失效。用 `src/core.mjs` 导出的
    `withTimeout` / `raceAbort`。
 3. **不要另开会话**（单脑约束）。要通知当前会话就用看门狗或 `sessionController.prompt`。
-4. 加完跑 `node whale_craft/tools/check-core.mjs` + `node whale_craft/selfcheck.mjs`，
+4. 加完跑 `node dsh_minecraft_bot/tools/check-core.mjs` + `node dsh_minecraft_bot/selfcheck.mjs`，
    再按铁律起隔离实例验整树。
 
 ## 模板

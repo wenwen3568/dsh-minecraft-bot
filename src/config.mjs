@@ -1,13 +1,13 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / config.mjs —— 插件全局配置（可配置、落盘、改完立即生效）
+ * dsh_minecraft_bot / config.mjs —— 插件全局配置（可配置、落盘、改完立即生效）
  * ============================================================================
  * 用户 2026-09-16 的要求：
  *   · **服务器指令白名单可配置**（原来是写死的正则）
  *   · **可配置向 MC 模式的 Agent 暴露哪些其它工具**
  *   · 非 MC 模式的 agent 有个工具能**直接改**这些配置；MC 模式的**不能用不能改**
  *
- * 落盘位置：**`$DSH_HOME/whale_craft/config.json`**（插件自己的家，见 {@link resolveStateDir}）。
+ * 落盘位置：**`$DSH_HOME/dsh_minecraft_bot/config.json`**（插件自己的家，见 {@link resolveStateDir}）。
  * ⚠️ 这里是**全局**行为配置；**按工作区**的配置（提示词版本 + 三个提示词开关）在
  *    src/wsconfig.mjs → `<记忆根>/config.json`（2026-10-03 下放，见该文件头注释）。
  * 🔴 2026-09-16 用户要求：**配置与账户不该躺在工作区里** —— 工作区是某个项目的家，
@@ -15,31 +15,41 @@
  *    与 `$DSH_HOME/skills`、`$DSH_HOME/.agent-presets`、`$DSH_HOME/storages`、`$DSH_HOME/attachments` 同一套规矩。
  *
  * 为什么不放在 cordis.patch.yml：那份配置要重启宿主才生效，而这里的键要**当场生效**。
- * 环境变量：`WHALE_CRAFT_STATE_DIR` 直接指定状态目录；`WHALE_CRAFT_DIR`（自检/隔离用）
+ * 环境变量：`MCBOT_STATE_DIR` 直接指定状态目录；`MCBOT_DIR`（自检/隔离用）
  * 一给就表示"所有状态都留在那个临时目录里"。
  * ============================================================================
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { normalizeExpressBase, normalizeExpressPort, DEFAULT_EXPRESS_PORT } from './express.mjs'
 
 /** 插件在 `$DSH_HOME` 下的目录名 */
-export const STATE_DIR_NAME = 'whale_craft'
+export const STATE_DIR_NAME = 'dsh_minecraft_bot'
+
+/**
+ * 改名前（2026-11 之前）的目录名 —— 只用于**自动迁移**，不再用于读写。
+ *
+ * 🔴 为什么必须迁移：改名前用户已经装过插件，`accounts.json`（账户）、`config.json`（设置）、
+ *    `servers.json`（地址历史）都在老目录里。改名后如果直接读新目录，用户会看到"账户没了、
+ *    设置全丢、服务器历史清空"，而他并不知道发生了什么。
+ *    做法：新目录不存在、老目录存在 → **整体搬迁**（rename，快且原子），老目录留一个 `.migrated-from-*` 备份名。
+ */
+export const LEGACY_STATE_DIR_NAME = 'whale_craft'
 
 /**
  * 解析**插件状态目录**（配置 + 账户库放这里，**不放工作区**）。
  *
- * 优先级：`WHALE_CRAFT_STATE_DIR` → （自检/隔离）`WHALE_CRAFT_DIR` →
- * 宿主给的 `dshHomePath('whale_craft')` → `$DSH_HOME/whale_craft` → `~/.dsh/whale_craft`。
- * @param {{env?: Record<string,string|undefined>, dshHomePath?: Function, whaleDir?: string, home?: string}} [opts]
+ * 优先级：`MCBOT_STATE_DIR` → （自检/隔离）`MCBOT_DIR` →
+ * 宿主给的 `dshHomePath('dsh_minecraft_bot')` → `$DSH_HOME/dsh_minecraft_bot` → `~/.dsh/dsh_minecraft_bot`。
+ * @param {{env?: Record<string,string|undefined>, dshHomePath?: Function, isoDir?: string, home?: string}} [opts]
  * @returns {string} 绝对路径
  */
-export function resolveStateDir ({ env = process.env, dshHomePath, whaleDir, home } = {}) {
-  const explicit = String(env.WHALE_CRAFT_STATE_DIR ?? '').trim()
+export function resolveStateDir ({ env = process.env, dshHomePath, isoDir, home } = {}) {
+  const explicit = String(env.MCBOT_STATE_DIR ?? '').trim()
   if (explicit) return explicit
-  // 自检 / 隔离实例：WHALE_CRAFT_DIR 一给，所有状态都留在那个临时目录（搬迁前的行为不变）
-  if (String(env.WHALE_CRAFT_DIR ?? '').trim() && whaleDir) return whaleDir
+  // 自检 / 隔离实例：MCBOT_DIR 一给，所有状态都留在那个临时目录（搬迁前的行为不变）
+  if (String(env.MCBOT_DIR ?? '').trim() && isoDir) return isoDir
   if (typeof dshHomePath === 'function') {
     try {
       const p = dshHomePath(STATE_DIR_NAME)
@@ -48,6 +58,38 @@ export function resolveStateDir ({ env = process.env, dshHomePath, whaleDir, hom
   }
   const base = String(env.DSH_HOME ?? '').trim() || join(home ?? homedir(), '.dsh')
   return join(base, STATE_DIR_NAME)
+}
+
+/**
+ * 老目录 → 新目录的**一次性迁移**（改名前的老用户）。
+ *
+ * 只在"新目录还不存在、老目录存在"时动手：整体 `rename` 过来，再放一个
+ * `MIGRATED.md` 说明（万一有第二个进程也在看老路径，至少能看到发生了什么）。
+ * **绝不删老数据**：rename 失败（跨盘/权限）就原样留着，返回 false 让调用方继续用新目录。
+ *
+ * @param {string} newDir 已解析出的新状态目录
+ * @returns {{migrated:boolean, from?:string, reason?:string}}
+ */
+export function migrateLegacyStateDir (newDir) {
+  if (!newDir) return { migrated: false, reason: 'newDir 为空' }
+  const parent = dirname(newDir)
+  const legacyDir = join(parent, LEGACY_STATE_DIR_NAME)
+  if (legacyDir === newDir) return { migrated: false, reason: '同名，无需迁移' }
+  try {
+    if (existsSync(newDir)) return { migrated: false, reason: '新目录已存在' }
+    if (!existsSync(legacyDir)) return { migrated: false, reason: '没有老目录' }
+    mkdirSync(parent, { recursive: true })
+    renameSync(legacyDir, newDir)
+    try {
+      writeFileSync(join(newDir, 'MIGRATED.md'),
+        `# 目录已改名\n\n本次升级把插件名从 \`whale_craft\` 改为 \`dsh_minecraft_bot\`。\n`
+        + `原来的 \`${LEGACY_STATE_DIR_NAME}/\` 已整体搬到 \`${STATE_DIR_NAME}/\`，账户与设置都还在。\n`
+        + `时间：${new Date().toISOString()}\n`, 'utf8')
+    } catch { /* 写说明失败不影响迁移本身 */ }
+    return { migrated: true, from: legacyDir }
+  } catch (e) {
+    return { migrated: false, reason: String(e?.message ?? e) }
+  }
 }
 
 /** 默认值 = 老行为（现有 mc_command 的白名单原样搬过来） */
@@ -64,12 +106,12 @@ export const DEFAULT_CONFIG = {
   /**
    * 哪些 agent preset 算"MC 模式"（含 MC+ 变体；用来做权限隔离与提示词注入）。
    * 两个官方 id 由本包的 `presets/*.patch.yml` 声明提供（DSH 0.2.0-rc.2+）；
-   * `whale_craft` 是历史名单项（保底，正常不可能是合法 preset id）。
+   * `dsh_minecraft_bot` 是历史名单项（保底，正常不可能是合法 preset id）。
    */
-  mcModePresets: ['minecraft', 'minecraft-plus', 'whale_craft'],
+  mcModePresets: ['minecraft', 'minecraft-plus', 'dsh_minecraft_bot'],
   mcMode: {
     /**
-     * **额外**允许 MC 模式会话使用的其它工具（whale_craft 自己的工具与文件工具永远在白名单里）。
+     * **额外**允许 MC 模式会话使用的其它工具（dsh_minecraft_bot 自己的工具与文件工具永远在白名单里）。
      *
      * MC 模式是**无条件白名单**：默认给 `mc_*` / `mc_kit_*` + 文件工具（`read/write/edit/glob/grep/read_image`）
      * + 后台任务/目标/待办（`job_*` / `goal_*` / `todo_write`，见 index.js 的 `MC_EXTRA_HOST_TOOLS`），
@@ -89,13 +131,13 @@ export const DEFAULT_CONFIG = {
    *
    * ⚠️ 这些 id 也应包含在 `mcModePresets` 里（不然整体不按 MC 会话处理）；
    * 判据见 `isMcPlusPreset` 与 index.js 的 `isMcPlusAgent`。
-   * MC+ 不套工具白名单（标准工具全量 + mc/mckit 全量），文件工具不受 `.whale-craft/` 限制；
+   * MC+ 不套工具白名单（标准工具全量 + mc/mckit 全量），文件工具不受 `.minecraft-bot/` 限制；
    * guard 对它只保留凭据路径拒绝。
    */
   mcPlusPresets: ['minecraft-plus'],
   /** 「MC设置 → 指令白名单」页的开关：允许所有服务器指令（默认关 = 只放行白名单里的） */
   allowAllCommands: false,
-  /* 注：`injectWhaleCraftAgentsMd` / `injectWorkspaceAgentsMd` / `rulesFollowVersion` 三个提示词
+  /* 注：`injectMinecraftBotAgentsMd` / `injectWorkspaceAgentsMd` / `rulesFollowVersion` 三个提示词
    * 开关 2026-10-03 起**按工作区**存（`<记忆根>/config.json`，见 src/wsconfig.mjs），不再在这里。
    * 旧全局值只作迁移 seed 用一次 —— 见 `PluginConfig.legacyPromptSwitches()`。 */
   /**
@@ -120,14 +162,14 @@ export const DEFAULT_CONFIG = {
    * 从哪种模式（宿主 profile）进来，就只认哪种模式的那套键；设置页也只显示那一套。
    *
    *   · **web 模式**（`expressWebEnabled` + `expressWebBase`）：沿用老方案——回
-   *     `base + /api/whale-craft/express/<工作区uuid>/<rel>` 完整 URL，文件走**宿主 webServer** 的那条路由；
+   *     `base + /api/minecraft-bot/express/<工作区uuid>/<rel>` 完整 URL，文件走**宿主 webServer** 的那条路由；
    *   · **desktop 模式**（`expressDesktopEnabled` + `expressDesktopPort`）：不要 base，改配端口，
    *     插件**自起一个只监听 localhost 的 http 服务**，地址 `http://localhost:<port>/<工作区uuid>/<rel>`，
    *     **直接托管**发布区文件。默认端口 {@link DEFAULT_EXPRESS_PORT}。
    *
    * 共同语义：关 → `mc_kit_express` 恒回 {@link EXPRESS_OFF_TEXT}（让 AI 把**绝对路径**给用户）；
    * 开但地址/端口没配好 → 回"请去设置"/"端口不可用"那句话（**不抛错**）。
-   * 🔴 两种模式都仍然**只认发布区**（`.whale-craft/.express/`）。
+   * 🔴 两种模式都仍然**只认发布区**（`.minecraft-bot/.express/`）。
    * 历史：更早是 `expressMode: 'off' | 'online'`（曾含 `local`），2026-10-04 降成一个开关
    * `expressEnabled`，2026-10-07 再拆成上面这四键（老键由 {@link PluginConfig.migrate} 搬到 web 那套）。
    */
@@ -188,7 +230,7 @@ export const DEFAULT_CONFIG = {
 
 /**
  * preset id 必须是**目录名**：与宿主 `agent-presets/src/preset.ts` 的 `PRESET_ID` 同规则。
- * 🔴 这条很要命：默认名单里的 `whale_craft` **带下划线，永远不可能是 preset id**
+ * 🔴 这条很要命：默认名单里的 `dsh_minecraft_bot` **带下划线，永远不可能是 preset id**
  * （所以"自动建 MC 模式 preset"只能建 `minecraft` 那种）。
  */
 export const PRESET_ID_RE = /^[a-z0-9][a-z0-9-]*$/
@@ -435,7 +477,7 @@ export function patchToolGroupsIntoComposition (text, groups = MC_PRESET_TOOL_GR
   if (!missing.length) return null
   let out = src.endsWith('\n') ? src : src + '\n'
   for (const g of missing) {
-    out += `\n# ── ${g.note ?? g.pkg}（whale_craft 2026-09-16 加）──\n`
+    out += `\n# ── ${g.note ?? g.pkg}（dsh_minecraft_bot 2026-09-16 加）──\n`
       + (g.block ? `\n${g.block}\n` : `\n- id: ${g.id}\n  name: '${g.pkg}'\n`)
   }
   return out
@@ -464,7 +506,7 @@ export function planPresetAction ({
   metaOk = true, shippedDescriptionMatch = false, spec = MC_PRESET_SPEC,
 } = {}) {
   if (!exists) return { action: 'create', reason: '还没有 MC 模式的 preset' }
-  const ours = marker?.createdBy === 'whale_craft'
+  const ours = marker?.createdBy === 'dsh_minecraft_bot'
   if (!ours) {
     return shippedDescriptionMatch
       ? { action: 'meta', reason: '不是我们建的，但简介明显是复制残留（旧版建出来的）→ 只修显示文本' }
@@ -501,7 +543,7 @@ const TOP_KEYS = new Set(Object.keys(DEFAULT_CONFIG))
 const SECRET_KEYS = new Set()   // 目前没有敏感键；留个位置
 
 export class PluginConfig {
-  /** @param {string} dir 状态目录（`$DSH_HOME/whale_craft`；自检里是临时目录） */
+  /** @param {string} dir 状态目录（`$DSH_HOME/dsh_minecraft_bot`；自检里是临时目录） */
   constructor (dir) {
     this.dir = dir
     this.file = join(dir, 'config.json')
@@ -619,7 +661,7 @@ export class PluginConfig {
    */
   legacyPromptSwitches () {
     const out = {}
-    for (const k of ['rulesFollowVersion', 'injectWhaleCraftAgentsMd', 'injectWorkspaceAgentsMd']) {
+    for (const k of ['rulesFollowVersion', 'injectMinecraftBotAgentsMd', 'injectWorkspaceAgentsMd']) {
       const v = this.data?.[k]
       if (typeof v === 'boolean') out[k] = v
     }

@@ -1,5 +1,5 @@
 /**
- * whale_craft · 落地 release 工作流（`npm run release:workflow-fix`）
+ * dsh_minecraft_bot · 落地 release 工作流（`npm run release:workflow-fix`）
  * ============================================================================
  * 为什么需要它（2026-09-17 起，2026-10-08 改成通用同步）：
  *   · `.github/workflows/*` 不总能经普通 `git push` 落地：GitHub 硬规则要求 token 有
@@ -65,7 +65,7 @@ function readToken () {
   return ''
 }
 
-console.log('whale_craft · 落地 release 工作流（模板 → .github/workflows/release.yml，Contents API 优先）')
+console.log('dsh_minecraft_bot · 落地 release 工作流（模板 → .github/workflows/release.yml，Contents API 优先）')
 if (!existsSync(TEMPLATE)) die(`找不到模板 ${TEMPLATE}`)
 const want = readFileSync(TEMPLATE, 'utf8')
 const now = existsSync(TARGET) ? readFileSync(TARGET, 'utf8') : ''
@@ -75,7 +75,7 @@ warn('当前 .github/workflows/release.yml 与 scripts/release.workflow.yml 不�
 const token = readToken()
 if (token) {
   try {
-    const res = await fetch(`${API}/user`, { headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'whale-craft' } })
+    const res = await fetch(`${API}/user`, { headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'minecraft-bot' } })
     if (!res.ok) warn(`token 校验失败（${res.status}）—— 继续，推送会由 git 自己报错`)
     else {
       const scopes = String(res.headers.get('x-oauth-scopes') ?? '')
@@ -105,7 +105,7 @@ if (DRY) {
  *   以 "without `workflow` scope" 拒（那一跳的凭据/转发方式有问题）。
  *   而 **Contents API 可以**（实测 PUT 成功）。所以优先走 API，git push 只当兜底。
  */
-const apiHeaders = () => ({ authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'whale-craft' })
+const apiHeaders = () => ({ authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'minecraft-bot' })
 const repoCoords = () => {
   const repo = capture('git', ['config', '--get', 'remote.' + REMOTE + '.url']).out
   const m = /github\.com[/:]([^/]+)\/([^/.]+)/.exec(repo)
@@ -146,7 +146,7 @@ if (!landedViaApi) {
   if (add.code !== 0) die(`git add 失败：${add.err || add.out}`)
   const staged = capture('git', ['diff', '--cached', '--name-only'])
   if (!staged.out) { ok('没有变化（可能刚才已经写过了）'); process.exit(0) }
-  const commit = capture('git', ['-c', 'user.name=' + (process.env.GIT_AUTHOR_NAME ?? 'whale-craft'), '-c', 'user.email=' + (process.env.GIT_AUTHOR_EMAIL ?? 'noreply@example.com'), 'commit', '-m',
+  const commit = capture('git', ['-c', 'user.name=' + (process.env.GIT_AUTHOR_NAME ?? 'minecraft-bot'), '-c', 'user.email=' + (process.env.GIT_AUTHOR_EMAIL ?? 'noreply@example.com'), 'commit', '-m',
     '同步 release.yml（与 scripts/release.workflow.yml 对齐）'])
   if (commit.code !== 0) die(`git commit 失败：${commit.err || commit.out}`)
   ok('已提交')

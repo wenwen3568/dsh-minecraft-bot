@@ -1,5 +1,5 @@
 /**
- * whale_craft / webfetch.mjs —— `mc_kit_web_fetch` 的**纯函数**部分（渲染 + 轻量 HTML 转换）
+ * dsh_minecraft_bot / webfetch.mjs —— `mc_kit_web_fetch` 的**纯函数**部分（渲染 + 轻量 HTML 转换）
  * ============================================================================
  * 定位：MC 模式没有宿主 `web_fetch`（我们把 MC preset 的 tool-web 配成 `fetch: false`），
  * 于是插件自己提供这一块。**网络在 `src/webget.mjs`**（插件自己的公网抓取）—— 本模块**不碰网络**，

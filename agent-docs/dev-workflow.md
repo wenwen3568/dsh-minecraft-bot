@@ -4,7 +4,7 @@
 
 ## 0. 本机环境硬约束（先读这条，不然会炸）
 
-本机跑 whale_craft 的 DSH 是 **Electron 桌面安装版**（`D:\Program Files\DeepSeek Harness`），**不是源码 checkout**（2026-09-30 时是 0.2.0-rc.2），所以：
+本机跑 dsh_minecraft_bot 的 DSH 是 **Electron 桌面安装版**（`D:\Program Files\DeepSeek Harness`），**不是源码 checkout**（2026-09-30 时是 0.2.0-rc.2），所以：
 
 | 事实 | 说明 |
 | --- | --- |
@@ -23,13 +23,13 @@
 给这个项目搭任何"跑起来试试"的东西（调试实例、e2e、隔离环境），**必须**与用户日常 DSH 隔离：
 
 - 独立 `DSH_HOME`（`dev.mjs` 用 `.dev/home`）+ 独立的插件状态/记忆目录；
-- **绝不碰** `~/.dsh/profiles/*`、`~/.dsh/whale_craft/*`、用户工作区的 `.whale-craft/`；
+- **绝不碰** `~/.dsh/profiles/*`、`~/.dsh/dsh_minecraft_bot/*`、用户工作区的 `.minecraft-bot/`；
 - `DSH_HOME` 要**显式**传给**每一个**子进程（`cmd` 子命令、pnpm、Electron），**不要依赖继承**；
 - 诊断/清理只动自己创建的东西；删软链前先 `lstatSync().isSymbolicLink()` 确认。
 
 **Why（两次真事故）**：
 1. 更早的 e2e 清场步骤把用户刚加的认证服务器删了 → `tools/isolate.mjs` 就是为立这条规矩；
-2. 2026-09-30 `runDsh` 漏传 `DSH_HOME`，一条 `dsh plugin add link:` 把**生产 web profile** 的 whale_craft 从 npm 版换成了本地 link。
+2. 2026-09-30 `runDsh` 漏传 `DSH_HOME`，一条 `dsh plugin add link:` 把**生产 web profile** 的 dsh_minecraft_bot 从 npm 版换成了本地 link。
 
 用户 2026-09-30 在两个方案里明确选了"独立 home + 拷凭据、生产不动"——这就是默认路线。
 
@@ -85,7 +85,7 @@ MC_HOST=127.0.0.1 MC_PORT=25566 MC_USER=CraftBot MC_VERSION=1.21.11 \
 - 子命令：`web`（默认/主用）、`desktop`、`link`、`status`、`stop`；`--watch` 附加：watch `index.js` + `src/` → 400ms 防抖重启实例（改 `client.js` 只提示——浏览器端是 HMR）。
 - 目录/常量：`DEV_HOME=.dev/home`、pidfile `.dev/web-instance.json`、`LINK_SPEC='link:'+仓库路径`、登记端口 39901 起（避开一组 FORBIDDEN 端口）。
 - 首次启动会 `seedDevHome`：从生产 `~/.dsh` **只拷缺失的**凭据/账户/配置进隔离 home（拷完生产不动）；`ensureRepoDeps` 会补 `npm install` 缺的 mineflayer。
-- `link` 校验是**双条件**：profile `dependencies.whale_craft === link:E:/Works/whale-craft` **且** `node_modules/whale_craft` realpath 指回仓库；Windows 上重装前要先摘旧软链（EPERM）。
+- `link` 校验是**双条件**：profile `dependencies.dsh_minecraft_bot === link:E:/Works/minecraft-bot` **且** `node_modules/dsh_minecraft_bot` realpath 指回仓库；Windows 上重装前要先摘旧软链（EPERM）。
 - 运行时分两套（`webCliRuntime()` / `requireDesktopInstall()`）：`desktop` 用 `spawn(exe, ['--expose-internals', hostCli, ...])` 绕开 .cmd 引号问题；`npm` 用 `spawn(process.execPath, [<npm 全局 dsh>/lib/bin.js, ...])`。`childEnv` 硬性带上 `ELECTRON_RUN_AS_NODE:'1'` + `DSH_HOME=DEV_HOME`（漏了写生产 home，见事故 ②）。记忆根**不再重定向**——跟会话工作区走，请用一个**专门的调试工作区**（2026-10-08 删掉旧的 `.dev/home/memory` 隔离）。
 - `desktop` 子命令注意：首次没有 `profiles/desktop/package.json` 时**要先让桌面应用自己建**（脚本会启动 GUI 轮询 90×2s）；`desktopAppRunning()` 用 PowerShell 查进程命令行、判据是"不含 `--expose-internals`"（因为 CLI/web 实例也叫同名 exe）。
 - `status`/`stop` 只认 pidfile 里的 pid，绝不广谱杀进程。
@@ -93,20 +93,20 @@ MC_HOST=127.0.0.1 MC_PORT=25566 MC_USER=CraftBot MC_VERSION=1.21.11 \
 ## 4. `tools/isolate.mjs`（老方式，供 e2e/整树验证）
 
 - `start` 需要 **DSH 源码 checkout**（`DSH_ROOT` 环境变量或 `--dsh-root`，要求存在 `apps/cli/src/bin.ts`），用当前 node `--import tsx/esm` 直接跑源码 CLI；`status` 用 netstat 查端口；`stop` 只杀自己记录的 pid。
-- 隔离不变量：`WHALE_CRAFT_STATE_DIR=logs/isolate-state`（副本）、**`WHALE_CRAFT_NO_PRESET_WRITE=1`**（preset 根在真实 `~/.dsh/.agent-presets` 无法重定向，与生产共用——所以禁止写）。记忆根**不再重定向**：隔离实例要用一个**独立临时工作区**开会话（记忆落它的 `.whale-craft`）。
+- 隔离不变量：`MCBOT_STATE_DIR=logs/isolate-state`（副本）、**`MCBOT_NO_PRESET_WRITE=1`**（preset 根在真实 `~/.dsh/.agent-presets` 无法重定向，与生产共用——所以禁止写）。记忆根**不再重定向**：隔离实例要用一个**独立临时工作区**开会话（记忆落它的 `.minecraft-bot`）。
 - 与 `dev.mjs` 同源约定（FORBIDDEN 端口、39901 起）；日常开发用 dev.mjs，isolate 用于"整树加载"级别的验收。
 
 ## 5. `selfcheck.mjs` 套件
 
 - **形态**：假 ctx（工具注册表、sessionController、jobs、agentPresets…全部 stub）+ 加载**真** `apply()`；用 `console.log('  ✅/❌ …')` 输出；只有 `apply()` 抛错才 `exit 1`，末尾恒 `process.exit(0)`。
-- **污染隔离**：`MC_LOG` → `logs/selfcheck.log`；`WHALE_CRAFT_DIR`（全局配置）→ `mkdtemp` 临时目录（构造用 `fileURLToPath` 而非 `new URL().pathname`——中文用户名路径会被百分号编码，2026-09-24 卡过自检）。**记忆根没有 env 阀门**：靠给测试 agent 一个 `mkdtemp` **临时工作区** cwd，记忆落在它的 `.whale-craft`（2026-10-08 起）。
+- **污染隔离**：`MC_LOG` → `logs/selfcheck.log`；`MCBOT_DIR`（全局配置）→ `mkdtemp` 临时目录（构造用 `fileURLToPath` 而非 `new URL().pathname`——中文用户名路径会被百分号编码，2026-09-24 卡过自检）。**记忆根没有 env 阀门**：靠给测试 agent 一个 `mkdtemp` **临时工作区** cwd，记忆落在它的 `.minecraft-bot`（2026-10-08 起）。
 - **覆盖分组**（节标题）：超时保护单元｜工具面与参数｜每会话实例分离｜未连接行为｜看门狗 v2（含断线同步、等待被打断）｜mc_act/give/sequence/stop｜强制停止顺序｜MC设置 HTTP（真路由）｜发布区与文件分享（防穿透/两模式/base 推导）｜玩家说话辨认｜记忆树｜图像地图｜扩展点｜归档保护｜提示词注入单通道与去重｜配置+权限隔离｜协议护栏禁发未知包｜幽灵在线｜账户/凭据分离｜受保护文件（RULES/AGENTS/config.json 可读不可写）与版本标记｜认证 URL｜未处理拒绝不留患｜唤醒投递（必须提示词注入）｜job 结算｜事件队列单一写入方｜无 OP 建造｜放置判据（与 minecraft-data 真值表比对）｜mc_connect 全参数｜client bundle 静态断言｜mc_lan/mc_ping｜设置页 UI 静态断言｜打包完整性｜**宿主包缺省**（内置 defineTool 与宿主逐字对拍 + 无宿主模拟子进程）。
 - **无宿主模拟**（2026-10-04，issue #5）：`tools/no-host-init.mjs`（module.register 解析钩子）屏蔽 `@deepseek-ai/dsh-tools`/`schemastery` 后**再跑一遍 selfcheck**（子进程），并逐字比对 41 个工具的注册形状——本机 link 安装测不出的问题靠它钉住；发布侧另有 `tools/check-standalone-import.mjs`（干净安装 import 回归，CI 必跑，改回静态 import 必红）。
 - **加断言的惯例**：断言要打在**真实实现**上（别只测 stub）；曾有"集成断言假绿"（复制完 preset 要改 persona/关 shell 那两条测不到）与"前端拿不到真路由"（真机 404）的教训，所以有一条专门**打真路由**的断言。计数口径：README 里写的 726/686 是历史数字，以实际运行为准（当前 600+ ✅）。
 
 ## 6. 调试技巧
 
-- **日志**：插件日志 `$DSH_HOME/whale_craft/logs/whale-craft.log`（`MC_LOG` 可覆盖；启动时同时进宿主 logger）。自检日志 `logs/selfcheck.log`。
+- **日志**：插件日志 `$DSH_HOME/dsh_minecraft_bot/logs/minecraft-bot.log`（`MC_LOG` 可覆盖；启动时同时进宿主 logger）。自检日志 `logs/selfcheck.log`。
 - **会话内诊断**：`mc_debug_diag`（物理/控制位/收包/事件队列 + `promptInjection` 投递状态；需开启调试开关）；`mc_watch {action:"log"}` 看看门狗留档；`GET /api/mc/mode?sessionId=` 有注入诊断。
 - **真机验收文化**：本项目修 bug 讲究"真机复现 → 修 → 真机验收"（CHANGELOG 每条修复都带现象/根因/修法/验收）。能起本地 MC 服务端就起，别只靠自检。
 - **别信"状态在撒谎"**：历史多次出现"界面/AI/工具三处一起撒谎"（断线后仍显示在游戏中、幽灵在线）。改状态相关代码时，同步核对：`McBot.online`、`McSession.modeView()`、`/api/mc/status`、client 状态条、`mc_events`/看门狗——五处要一致。

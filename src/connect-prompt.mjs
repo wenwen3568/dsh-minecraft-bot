@@ -1,11 +1,11 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / connect-prompt.mjs —— 「连接到MC」弹窗点击后注入的提示词
+ * dsh_minecraft_bot / connect-prompt.mjs —— 「连接到MC」弹窗点击后注入的提示词
  * ============================================================================
  * 用户在弹窗里点「连接」/ 点局域网服务器行 → 插件给**当前会话**注入这段提示词并让它跑一轮
  * （真正的连接由 LLM 去调 `mc_connect` 完成；这里只负责"告诉它去连"）。
  *
- * 🔴 注入走**插件提示行**（`source.kind='plugin:whale_craft'`），**绝不冒充用户发言**
+ * 🔴 注入走**插件提示行**（`source.kind='plugin:dsh_minecraft_bot'`），**绝不冒充用户发言**
  *    （见 src/user-message.mjs 与 index.js 的注入处）。
  *
  * 扩展点：{@link CONNECT_PROMPT_APPENDERS} —— "**因属性而追加提示词**"的插槽。

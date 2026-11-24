@@ -2,7 +2,7 @@
 
 > 面向接手本仓库的 AI agent 与开发者。讲 `client.js` 挂到 DSH Web 前端的**插槽扩展点**、
 > **图标约定**，以及"哪些入口属于 root 作用域、哪些属于会话"。
-> 快照：whale_craft **0.2.0**（开发中，未发布；含插件详情页「设置」入口、两态设置、「连接到MC」弹窗），2026-10-04。
+> 快照：dsh_minecraft_bot **0.2.0**（开发中，未发布；含插件详情页「设置」入口、两态设置、「连接到MC」弹窗），2026-10-04。
 
 ## 一句话
 
@@ -17,16 +17,16 @@
 | `conversation.session.header.actions` | list | **session** | 状态条 / 强制停止（order 50）、「设置」（order 45）、**「连接到MC」（order 40，在设置左边）** | 进了游戏的会话 |
 | `conversation.input.right` | list | **session** | 新会话页 hero 的 **「连接到MC」+「设置」**（**驱动器**，本身 return null，按钮靠 DOM 按 order 插到模式芯片右边） | 新会话页 + MC 模式 |
 | `conversation.chat.assistant-actions` | list | **session** | **「创建MC+分支」**（order 10；立方体图标，见下） | 助手轮末消息 + 会话 preset ∈ `{standard, minecraft}` |
-| `plugins.detail.actions` | list | **root** | 插件页 → **whale_craft 详情页**头部的「设置」按钮（order 20） | 打开 whale_craft 的 bundle 详情页时 |
+| `plugins.detail.actions` | list | **root** | 插件页 → **dsh_minecraft_bot 详情页**头部的「设置」按钮（order 20） | 打开 dsh_minecraft_bot 的 bundle 详情页时 |
 
 - **会话插槽**（前两个）由宿主注入 `sessionId` / `useSessions` / 会话 cwd，能做"按会话/工作区"的判定与请求。
 - **root 插槽**（`plugins.detail.actions` 等）**没有会话、没有工作区**。宿主对这些 list 插槽的约定是：
   每个条目都拿到该页的 `subject`（`{kind:'bundle',pkg}` / `{kind:'row',pkg,row}` / `{kind:'item',id}`），
   **对无关的 subject 返回 `null`** 即可（页面按 `order` 排序，条目自绘 chrome）。
   详见 `@deepseek-ai/dsh-client-ui-plugin-manager` README 的 "Detail page extension points"。
-- 我们靠 `subject.kind==='bundle' && subject.pkg.name==='whale_craft'` 自过滤，因此按钮**只**出现在
-  whale_craft 自己的详情页，不会污染别的插件页。**不要**往 `plugins.item` 注册——那一组卡片会被列在
-  「官方」分组下，把我们标成"官方"语义不对；whale_craft 的包卡片本来就在「已安装」里。
+- 我们靠 `subject.kind==='bundle' && subject.pkg.name==='dsh_minecraft_bot'` 自过滤，因此按钮**只**出现在
+  dsh_minecraft_bot 自己的详情页，不会污染别的插件页。**不要**往 `plugins.item` 注册——那一组卡片会被列在
+  「官方」分组下，把我们标成"官方"语义不对；dsh_minecraft_bot 的包卡片本来就在「已安装」里。
 
 ## 🔴 图标约定（2026-10-04 用户定）
 
@@ -121,7 +121,7 @@ transform:scale(1.35)` **按图形自身**略微放大（**别放满**，放满�
 （`width:min(760px,100%); height:min(82vh,600px)`），内容靠上、**配置行做贴底 footer**（中间留白）：
 1. 服务器地址输入 + 「连接」按钮（运行图标；两者**等高 34px**——输入框必须 `box-sizing:border-box`）。
 2. **历史气泡行**：`overflow-x:auto; flex-wrap:nowrap`（不换行左右滚），气泡可 × 移除。
-   **历史是全局的**（`$DSH_HOME/whale_craft/servers.json`），**只记手动点「连接」的地址**，局域网直连不记。
+   **历史是全局的**（`$DSH_HOME/dsh_minecraft_bot/servers.json`），**只记手动点「连接」的地址**，局域网直连不记。
 3. **局域网探测**（后端 `probeLan`：多播监听 + 逐个 `statusPing` 拿人数/版本/MOTD）：探测中是
    **方块一行、文案一行**（各占一行、水平居中），方块只动 opacity 的呼吸动画；出结果后**整张卡片就是
    一个按钮**（`<button data-wc-cn-lan>`），运行图标**无缝嵌在卡片里**（`data-wc-cn-run`，不是独立按钮）。
@@ -148,7 +148,7 @@ transform:scale(1.35)` **按图形自身**略微放大（**别放满**，放满�
 **点击「连接」/ 局域网卡片 → `POST /api/mc/connect`**：**注入 + 让该会话跑一轮**，
 真正的连接由 LLM 调 `mc_connect` 完成（见 architecture.md；提示词在 `src/connect-prompt.mjs`，
 追加插槽 `CONNECT_PROMPT_APPENDERS`）。**两种投递方式**：
-- **对话中**（标题条入口）：插件提示行（`source.kind='plugin:whale_craft'`, notice）。
+- **对话中**（标题条入口）：插件提示行（`source.kind='plugin:dsh_minecraft_bot'`, notice）。
 - **新对话页**（hero 入口，`asUser: true`）：插件提示行在新会话里不灵（实测）⇒ **模拟玩家发言**
   ——`source.kind='user'`，正文前加 **`[system] `**。⚠️ 这是**用户明确要求的**例外。
 

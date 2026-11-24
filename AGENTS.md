@@ -1,6 +1,6 @@
 # AGENTS.md —— 接手本仓库的 agent 从这里开始
 
-whale_craft 是 DSH（DeepSeek Harness）原生插件：把无头 Minecraft 机器人（mineflayer）跑在宿主进程里，
+dsh_minecraft_bot 是 DSH（DeepSeek Harness）原生插件：把无头 Minecraft 机器人（mineflayer）跑在宿主进程里，
 给模型一套 `mc_*` 工具，并在"值得注意"时唤醒它。**给用户的说明见根 `README.md`。**
 
 ## 第一步：读内部文档地图

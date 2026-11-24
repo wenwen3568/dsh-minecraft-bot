@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / watchdog.mjs —— 事件看门狗（v2，2026-09-15 体系化重构）
+ * dsh_minecraft_bot / watchdog.mjs —— 事件看门狗（v2，2026-09-15 体系化重构）
  * ============================================================================
  * 用户 2026-09-15 的要求，逐条对应到实现：
  *
@@ -616,10 +616,10 @@ export class Watchdog {
     //    **An idle driver starts a turn**; a running driver consumes it at its
     //    next step boundary." —— 空闲起一轮、运行中插下一步，正是我们要的两用。
     //
-    // source 用 `{kind:'plugin:whale_craft', form:'notice'}`：宿主把它渲染成**折叠的 notice 行**
+    // source 用 `{kind:'plugin:dsh_minecraft_bot', form:'notice'}`：宿主把它渲染成**折叠的 notice 行**
     //   （"One-line account of what happened, shown without expanding the row"），
     //   不是用户发言。summary 就是那一行。
-    //   🔴 kind 必须是 **v4 规范值** `plugin:whale_craft`——v4 会话格式**拒绝**裸露的 'plugin'
+    //   🔴 kind 必须是 **v4 规范值** `plugin:dsh_minecraft_bot`——v4 会话格式**拒绝**裸露的 'plugin'
     //   （见 src/user-message.mjs 头注释）。
     // ────────────────────────────────────────────────────────────────────────
     const agent = this.agent
@@ -628,7 +628,7 @@ export class Watchdog {
         const message = userMessage({
           content: [{ type: 'text', text }],
           source: {
-            kind: 'plugin:whale_craft',
+            kind: 'plugin:dsh_minecraft_bot',
             form: 'notice',
             summary: `MC 看门狗：${kind}`.slice(0, 120),
           },

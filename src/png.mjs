@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / png.mjs —— 极简 PNG 编码器（RGBA8，零依赖）
+ * dsh_minecraft_bot / png.mjs —— 极简 PNG 编码器（RGBA8，零依赖）
  * ============================================================================
  * 为什么自己写而不装 sharp/pngjs：
  *   1. 插件要被 symlink 挂进 profile，多一个原生依赖就多一份装不上的风险；

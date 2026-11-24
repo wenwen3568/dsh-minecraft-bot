@@ -14,7 +14,7 @@
 - `withTimeout(promise, ms, label)`：race 守卫定时器**故意不 unref**（否则只剩它跑时进程提前退出）；超时错误带 `mcTimeout:true`。
 - `raceAbort(promise, signal, label)`：给 await 接 abort（宿主 cancel 不杀同进程 promise）；错误带 `mcAborted:true`。
 - `lossless(value)`：宿主工具返回值校验要求纯 JSON（原型必须是 `Object.prototype`/null，不允许 `-0`）。类实例只留自有可枚举属性、Vec3→`{x,y,z}`、Date→ISO、Map/Set 展开、循环→`'[circular]'`、NaN/±Inf→null。
-- `logLine(...)`：独立落盘（无实例也能用），前缀 `[whale_craft HH:MM:SS]`，写 `DEFAULTS.logFile`（默认 `$DSH_HOME/whale_craft/logs/whale-craft.log`，`MC_LOG` 可覆盖；**不写包目录**）。
+- `logLine(...)`：独立落盘（无实例也能用），前缀 `[dsh_minecraft_bot HH:MM:SS]`，写 `DEFAULTS.logFile`（默认 `$DSH_HOME/dsh_minecraft_bot/logs/minecraft-bot.log`，`MC_LOG` 可覆盖；**不写包目录**）。
 - `libraryInfo()`：报 mineflayer 版本 / testedVersions / minecraft-data 版本，不连服。
 - `sessionFlags(mode)`：离线账户 `haveCredentials/useAccessToken=false`（假 token 做 session join 会 `ForbiddenOperationException`，真炸过）；yggdrasil=true。
 - `wrapYggdrasilServer` / `takeAuthJoinError` / `friendlyAuthError`：yggdrasil 库新旧回调兼容层 + 认证错误转"可执行的人话"（`needUserAction:true`）。
@@ -68,7 +68,7 @@
 | `heartbeat` | ❌ | 距上次唤醒 ≥ `heartbeatSec`(300) 且在线 | `【心跳｜已挂机 Ns】` |
 
 - 同话题延续：唤醒后 `topicWindowSec`(120s) 内的发言**直接算 mention**。命中进 `pending` 攒 `observeWindowMs`(2s) 合并 → `#flush` 过 `maxWakePerMinute`(6) 限流 → 一条 `【MC 看门狗｜标签】` 正文注入。另有 `followUpAfterSec`(45)：唤醒后 45s 无下文补提醒一次。
-- **`#inject`（唯一注入口）**：① gate（非 MC 模式只记账 drop）；② **先 `sess.interruptWait(kind)`**；③ 首选 `agent.steer(userMessage(...))`（`source:{kind:'plugin:whale_craft',form:'notice'}`——v4 规范值，宿主渲染成折叠一行；空闲时起一轮、运行中下一步插话）；④ 兜底 `sessionController.prompt({mode:'steer'}, promptSignal)`。**绝不用** `followup`/queue 类"冒充用户发言"的通道。
+- **`#inject`（唯一注入口）**：① gate（非 MC 模式只记账 drop）；② **先 `sess.interruptWait(kind)`**；③ 首选 `agent.steer(userMessage(...))`（`source:{kind:'plugin:dsh_minecraft_bot',form:'notice'}`——v4 规范值，宿主渲染成折叠一行；空闲时起一轮、运行中下一步插话）；④ 兜底 `sessionController.prompt({mode:'steer'}, promptSignal)`。**绝不用** `followup`/queue 类"冒充用户发言"的通道。
 - 留档 `this.log`（内存，上限 200，`#record` 是唯一写入点）—— 与 `sess.events` 分开，双写曾是 bug。
 
 ## 4. `src/memory.mjs` —— MemoryStore（记忆树）
@@ -78,7 +78,7 @@
 - **`safePath(rel)` 是路径安全关口**：拒空/绝对路径/盘符/`.`/`..`/深层/超长/非法段，`resolve` 后必须仍在 root 内。**不再做文件名封锁** —— 根级的受保护文件（RULES.md/AGENTS.md/config.json，见 src/protected.mjs）在这里**放行（读允许）**，结果带 `protected:true`，由写类方法显式拒绝（用户 2026-10-03：可读不可写）。
 - 方法：`ensureRoot/ensureReadme`（骨架只建一次）· `pathFor({topic,server})`（server 缺省 `_global/`；无扩展名补 `.md`）· `list()`（根级 README 与受保护文件不算记忆；解析标题/条目数/摘要）· `renderTree()`/`indexText()`（5s 缓存；注入用 = README 正文 + 目录树）· `read()`（文本→content；**图片→附件**（工具层 `attachments.saveImage`）；二进制→元信息）· `put()`（**把工作区任意文件复制进记忆**，16MB，name 清洗）· `append({text,key})`（单条 ≤4000 字；同 key 正则替换旧 bullet）· `write()`（整文件覆盖，拒图片）· `delete()` · `search()`（跨文本文件逐行，limit ≤100）· `overview()`。
 - `append/write/delete/put` 对 `protected` 目标一律抛"只读"（`protectedWriteError`）。写后清 `_textCache`（投递的索引恒新）。⚠️ `list()` 只跳过**根级**的 README 与受保护文件，`.out/`/`.express/` 会被遍历进去（未专门跳过）。
-- 🔴 **工具 `mc_kit_memory` 已于 2026-10-07 移除**（同日又去掉 README 索引的**自动注入**）：agent 改用宿主受限文件工具（read/write/edit/glob/grep/read_image）直接读写 `.whale-craft/`。本模块**保留为库**——`put/append/write/delete/search/overview/read` 与读侧的 `indexText/renderTree/list` 均不再有生产消费方，仍由自检单元测试直接覆盖；`read()` 的图片附件化接线随工具移除（看图改由宿主 `read_image` 承担）。
+- 🔴 **工具 `mc_kit_memory` 已于 2026-10-07 移除**（同日又去掉 README 索引的**自动注入**）：agent 改用宿主受限文件工具（read/write/edit/glob/grep/read_image）直接读写 `.minecraft-bot/`。本模块**保留为库**——`put/append/write/delete/search/overview/read` 与读侧的 `indexText/renderTree/list` 均不再有生产消费方，仍由自检单元测试直接覆盖；`read()` 的图片附件化接线随工具移除（看图改由宿主 `read_image` 承担）。
 
 ## 5. `src/agentsmd.mjs` —— RULES.md 行事准则
 
@@ -97,10 +97,10 @@
 
 ## 7. `src/user-message.mjs` —— 插件提示行构造
 
-- `userMessage(input)`：宿主 `@deepseek-ai/dsh-llm` 的 `createUserMessage` 优先；解析不到/异常 → `builtinUserMessage`（自带等价实现：`{role:'user', content, source:{kind:'plugin:whale_craft'}, id}`）。
+- `userMessage(input)`：宿主 `@deepseek-ai/dsh-llm` 的 `createUserMessage` 优先；解析不到/异常 → `builtinUserMessage`（自带等价实现：`{role:'user', content, source:{kind:'plugin:dsh_minecraft_bot'}, id}`）。
 - `messageFactoryKind()`：诊断 `'host'|'builtin'`。
 - ⚠️ 存在理由：0.1.4 时该包漏进依赖声明 → 别人 npm 装出来"工具都在、提示词全无"。**依赖声明不能少**，兜底只是保险。
-- 🔴 `source.kind` 必须是 **v4 规范值 `plugin:whale_craft`**（v4 会话格式拒绝裸露的 `'plugin'`；宿主对 source 原样透传）——2026-10-04 按 PR #2（@swan3146）的真机实验 + 宿主 `dsh-session-format-v3-to-v4` 源码核实。
+- 🔴 `source.kind` 必须是 **v4 规范值 `plugin:dsh_minecraft_bot`**（v4 会话格式拒绝裸露的 `'plugin'`；宿主对 source 原样透传）——2026-10-04 按 PR #2（@swan3146）的真机实验 + 宿主 `dsh-session-format-v3-to-v4` 源码核实。
 
 ## 8. `src/config.mjs` —— 配置 + preset 规划
 
@@ -109,12 +109,12 @@
 | 键 | 默认 | 含义 |
 | --- | --- | --- |
 | `commandWhitelist` | 22 个指令名 | `mc_command` 放行；支持精确名 / `/正则/flags` / `"*"` |
-| `mcModePresets` | `['minecraft','minecraft-plus','whale_craft']` | "MC 类模式"判据（含 MC+；`whale_craft` 为历史名单项） |
+| `mcModePresets` | `['minecraft','minecraft-plus','dsh_minecraft_bot']` | "MC 类模式"判据（含 MC+；`dsh_minecraft_bot` 为历史名单项） |
 | `mcPlusPresets` | `['minecraft-plus']` | 其中哪些是 **MC+ 变体**（开放标准模式全部工具；须同时 ∈ mcModePresets） |
 | `mcMode.allowOtherTools` | `[]` | MC 模式白名单**额外**放行（只能收窄，不能凭空加；MC+ 不适用） |
 | `mcMode.hideAdminTools` | `true` | 隐藏 `mc_admin_*`（仅 MC 模式；MC+ 可见；另有 guard 硬拒） |
 | `allowAllCommands` | `false` | 指令白名单总开关 |
-| （提示词三开关 `injectWhaleCraftAgentsMd` / `injectWorkspaceAgentsMd` / `rulesFollowVersion` **已下放为按工作区**，存 `<工作区>/.whale-craft/config.json`，见 [§14 wsconfig](#14-srcwsconfigmjs--按工作区的配置)） | | |
+| （提示词三开关 `injectMinecraftBotAgentsMd` / `injectWorkspaceAgentsMd` / `rulesFollowVersion` **已下放为按工作区**，存 `<工作区>/.minecraft-bot/config.json`，见 [§14 wsconfig](#14-srcwsconfigmjs--按工作区的配置)） | | |
 | `ensureMcPreset` | `true` | 旧宿主遗留：目录式自举「MC模式」（0.2.0-rc.2+ 由 `presets/*.patch.yml` 声明提供，此键 no-op） |
 | `expressWebEnabled` | `false` | **web 模式**文件分享开关 |
 | `expressWebBase` | `''` | **web 模式**的访问 base（如 https://example.com） |
@@ -130,11 +130,11 @@
 - `PluginConfig`：`load`（坏配置不崩、记 `lastError` 按默认跑；**顺带跑 `migrate()`**）、`set` 只认 `TOP_KEYS`（= DEFAULT_CONFIG 键）且过 `validate`、`values()` 深合并（数组整体覆盖）；语义 getter（`mcModePresets/mcPlusPresets/expressWebEnabled/expressWebBase/expressDesktopEnabled/expressDesktopPort/commandAllowed/isMcModePreset/isMcPlusPreset`…）每次现读 ⇒ **改完热生效**。
 - `migrate()`：文件分享键逐档搬（都**删旧键**、只在真改动时落盘）——① 老 `expressMode: 'off'|'online'`（曾含 `'local'`）→ `expressWebEnabled`（`online`→`true`，其余→`false`）；② 2026-10-07 拆键：`expressEnabled`→`expressWebEnabled`、`expressBase`→`expressWebBase`。
 - `legacyPromptSwitches()`：从**文件原值**里取旧版全局存过的三个提示词开关（只取显式设过且类型合法的）—— 只作工作区建档时的一次性 seed 来源（消费方 index.js → `wsconfig.migrate`）。
-- `resolveStateDir`：`WHALE_CRAFT_STATE_DIR` → `WHALE_CRAFT_DIR`+whaleDir → `$DSH_HOME/whale_craft` → `~/.dsh/whale_craft`。
+- `resolveStateDir`：`MCBOT_STATE_DIR` → `MCBOT_DIR`+whaleDir → `$DSH_HOME/dsh_minecraft_bot` → `~/.dsh/dsh_minecraft_bot`。
 
 ### preset 规划（纯函数；**遗留** —— 只服务旧宿主的目录式自举；0.2.0-rc.2+ 由包内 `presets/*.patch.yml` 声明，见 architecture §8）
 
-- `PRESET_ID_RE=/^[a-z0-9][a-z0-9-]*$/`（与宿主同名规则；下划线非法 ⇒ 目标 id 不能叫 whale_craft）。
+- `PRESET_ID_RE=/^[a-z0-9][a-z0-9-]*$/`（与宿主同名规则；下划线非法 ⇒ 目标 id 不能叫 dsh_minecraft_bot）。
 - `MC_PRESET_SPEC=7`：规格版本，**改动 = 下次启动重建自建 preset**；`planPresetAction` 判定序：不存在→`create`；非本插件建的→只在简介是复制残留时 `meta` 否则 `leave`；无 compositionHash→只敢 `meta/leave`；spec 变→`rebuild`；组成被用户改过（hash 不符）→`leave`；官方源变了（源 hash 变）→`rebuild`；显示文本不对→`meta`。
 - `pickPresetTarget`（取 `mcModePresets` 里第一个合法的）/ `PREFERRED_PRESET_SOURCES=['minimal','standard','ptc']` / `pickPresetSource` / `isCopiedPresetDescription`。
 - `PERSONA_TEXT_KEYS=['prefix','text']` + `personaTextKeyOf`：跨 DSH 版本探测 persona 键名。
@@ -142,7 +142,7 @@
 
 ## 9. `src/accounts.mjs` —— 账户与凭据
 
-- **存储分离**：元数据 `$DSH_HOME/whale_craft/accounts.json`；凭据（password/token/clientToken）**只进宿主凭据服务**（`ctx.credentials`，key=`whale-craft/<innerID>` → `$DSH_HOME/.credentials.yaml` owner-only）。凭据服务不可用 → **直接抛错拒绝，绝不降级写明文**（MC agent 手里有 read 工具）。
+- **存储分离**：元数据 `$DSH_HOME/dsh_minecraft_bot/accounts.json`；凭据（password/token/clientToken）**只进宿主凭据服务**（`ctx.credentials`，key=`minecraft-bot/<innerID>` → `$DSH_HOME/.credentials.yaml` owner-only）。凭据服务不可用 → **直接抛错拒绝，绝不降级写明文**（MC agent 手里有 read 工具）。
 - 类型：`offline` / `yggdrasil`（第三方皮肤站，authlib-injector 风格）/ microsoft（`add` 抛"暂不支持"）。
 - 工具函数：`offlineUuid`（复刻 Java `UUID.nameUUIDFromBytes("OfflinePlayer:<name>")`：md5+v3+variant）、`dashUuid`、`normalizeServerUrl`、`parseAuthlibCard`（解析 `authlib-injector:yggdrasil-server:<urlencoded>` 卡片/裸网址，raw 与 decode 各试一次）。
 - `AccountStore`：`load`（坏库降级空库记 `loadError`）/`save`/`ensureDefaults`（`seeded` 标记**只种一次**：预置 LittleSkin 认证服 + 默认离线账户 `DeepSeek`，可删且不长回）/`view`（**绝不含密码/token**）/`add/update/remove`（remove 连带删凭据并让渡默认）/`search`/`resolve`。
@@ -151,7 +151,7 @@
 
 ## 10. `src/express.mjs` —— 发布区（纯函数，不碰 fs）
 
-- 常量：`EXPRESS_DIR='.express'`、`OUT_DIR='.out'`、`EXPRESS_URL_PREFIX=/api/whale-craft/express`、`WORKSPACE_ID_RE`。
+- 常量：`EXPRESS_DIR='.express'`、`OUT_DIR='.out'`、`EXPRESS_URL_PREFIX=/api/minecraft-bot/express`、`WORKSPACE_ID_RE`。
 - `parseExpressPath`：要求**已解码**的 pathname（`%2e%2e` 先还原成 `..` 才可判）；首段 workspaceId 过正则，其后 ≥1 段。
 - `safeExpressTarget(root, segments)` 逐段拒：空段/`.`/`..`/含 `/` 或 `\`/盘符/`~` 开头/控制字符/段 >255；拼完复查仍在 root 内（纵深防御，真正兜底是路由层 `realpath`）。
 - `mimeOf`（全扩展名放行，未知 octet-stream）、`SANDBOX_TYPES`（svg/html/xml/js → CSP sandbox 头）。
@@ -182,7 +182,7 @@
 
 ## 13b. `src/serverhistory.mjs` —— 「连接到MC」的服务器地址历史（全局）
 
-- 落盘 **`<状态目录>/servers.json`**（`$DSH_HOME/whale_craft/`）——**全局**，不按工作区；形态 `{version:1, recent:[addr…]}`。
+- 落盘 **`<状态目录>/servers.json`**（`$DSH_HOME/dsh_minecraft_bot/`）——**全局**，不按工作区；形态 `{version:1, recent:[addr…]}`。
 - `ServerHistory({dir})`：`list()` / `record(addr)`（**去重 + 最近优先 + 封顶 `MAX_SERVERS=20`**）/ `remove(addr)`；读宽容（坏文件按空跑）、写失败只记 `lastError`。
 - **只存地址字符串**（不存账户/凭据）。**只有手动点「连接」才 `record`**；局域网直连不记（调用方保证）。
 
@@ -203,9 +203,9 @@
 
 ## 14. `src/wsconfig.mjs` —— 按工作区的配置
 
-> 用户 2026-10-03 定：按工作区独立的设置（提示词版本 + 「MC设置→提示词」三开关）统一存 `<记忆根>/config.json`（默认 `<工作区>/.whale-craft/config.json`），取代原来的 `.rules-version` 独立标记 + 全局三开关。
+> 用户 2026-10-03 定：按工作区独立的设置（提示词版本 + 「MC设置→提示词」三开关）统一存 `<记忆根>/config.json`（默认 `<工作区>/.minecraft-bot/config.json`），取代原来的 `.rules-version` 独立标记 + 全局三开关。
 
-- 文件形态 `{schema:1, rulesVersion, rulesFollowVersion, injectWhaleCraftAgentsMd, injectWorkspaceAgentsMd}`；缺键按 `WS_DEFAULTS`（= 下放前的全局默认）补齐；**未知键保留**（前向兼容）。
+- 文件形态 `{schema:1, rulesVersion, rulesFollowVersion, injectMinecraftBotAgentsMd, injectWorkspaceAgentsMd}`；缺键按 `WS_DEFAULTS`（= 下放前的全局默认）补齐；**未知键保留**（前向兼容）。
 - `load` 不建目录、不抛：文件缺失/坏 JSON/非本格式 → 默认值 + `lastError`；`rulesVersion` 读不到时**兜底旧 `.rules-version`**（未迁移的老工作区行为不变）。
 - 写：`config.json.tmp` + rename 原子替换；`patch` 只收三开关（布尔校验）并保留未知键/版本；**文件坏或非本格式 → 拒绝写**（不覆盖用户数据）。
 - `migrate(root, {seed})`：建档 + 迁移（幂等）—— 无文件则写 `{schema:1}` + seed 里显式给过的旧全局值 + 旧标记值；**写后回读校验通过才删**旧 `.rules-version`；非本格式文件一概不碰（报 error）。调用点：`ensureMemoryRootForCwd`，**必须在 syncRulesVersion 之前**（否则旧版本值这一轮看不到）。
@@ -215,10 +215,10 @@
 
 > 用户 2026-10-03 定：RULES.md / AGENTS.md（老名）/ config.json 对 MC 模式 AI **只读**。统一收编前身的散落判定：`agentsmd.mjs:isAgentsMdPath`（工具参数 JSON 全文匹配，已删）、`memory.mjs` 的根级文件名封锁。
 
-- `PROTECTED_FILES / isProtectedName`（根级、大小写不敏感）；`isProtectedPathArg(raw)`（guard 用：裸名 或 含 `.whale-craft`/`whale_craft` 段的路径；嵌套记忆文件如 `_global/config.json` 不算）。
+- `PROTECTED_FILES / isProtectedName`（根级、大小写不敏感）；`isProtectedPathArg(raw)`（guard 用：裸名 或 含 `.minecraft-bot`/`dsh_minecraft_bot` 段的路径；嵌套记忆文件如 `_global/config.json` 不算）。
 - `WRITE_FILE_TOOLS=/^(write|edit)$/`、`MEMORY_WRITE_ACTIONS=append/write/delete/put`（**现无消费方**：guard 侧随 `mc_kit_memory` 于 2026-10-07 移除，保留供将来写类工具复用）；`rejectionText()` / `protectedWriteError(rel)` 统一文案。
 - `CREDENTIAL_PATH_RE`（`\.credentials`/`credentials.yaml`/`.dsh`）与 `SECRETS_DIR_RE`（`secrets/`）：凭据相关路径判定，**guard 与 `mc_kit_fs`（src/fsops.mjs）共用一份**（2026-10-08 从 guard 的两个内联正则提取）。
-- guard（index.js）对文件工具用它 + **解析到记忆根后正好是该文件**的二次判定（绝对路径不一定含 `.whale-craft` 段也照样判定）；写入路径以 memory.mjs 的 `target.protected` 为兜底。
+- guard（index.js）对文件工具用它 + **解析到记忆根后正好是该文件**的二次判定（绝对路径不一定含 `.minecraft-bot` 段也照样判定）；写入路径以 memory.mjs 的 `target.protected` 为兜底。
 
 ## 15b. `src/fsops.mjs` —— `mc_kit_fs` 的文件系统操作（2026-10-08）
 
@@ -319,5 +319,5 @@
 ## 17. 模块依赖与不变式
 
 - 模块间 import：`config.mjs → express.mjs`（`EXPRESS_MODES/normalizeExpressBase/resolveExpressMode`）；`agentsmd.mjs → wsconfig.mjs`（版本读写）；`memory.mjs → protected.mjs`（保护判定）；`webfetch.mjs` / `webget.mjs` **不依赖任何模块**（纯文本转换 / 自带公网抓取，index.js 组装）；`tool-def.mjs` 自解析宿主包（可缺省）；index.js 组装其余；`resolver-shim.mjs` 无导出、纯副作用（index.js 首条 import，必须早于其余全部）。
-- 记忆根定位（index.js `memoryRootFor`）：**就是** `<会话 cwd>/.whale-craft`；没有会话工作区 → `null`（无兜底目录、无 env/config 重定向 —— 2026-10-08 删掉旧的 `WHALE_CRAFT_MEMORY_DIR` 与 `config.memoryDir`）。
+- 记忆根定位（index.js `memoryRootFor`）：**就是** `<会话 cwd>/.minecraft-bot`；没有会话工作区 → `null`（无兜底目录、无 env/config 重定向 —— 2026-10-08 删掉旧的 `MCBOT_MEMORY_DIR` 与 `config.memoryDir`）。
 - 跨模块不变式：① 记忆路径全过 `safePath`，受保护文件（RULES/AGENTS/config.json）**可读不可写**（写类方法拒绝）；② 凭据只进宿主凭据服务，`view()`/工具返回/HTTP 永不见；③ 发布区只服务 `.express/`，`.out/` 永不对外；④ LAN 只被动听；⑤ ping 永不 reject；⑥ 一切写给模型的注入都是"提示行"。

@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * 本地开发一键启动器 —— 把本仓库作为 whale_craft 的 **link 安装** 接进一个**独立**的
+ * 本地开发一键启动器 —— 把本仓库作为 dsh_minecraft_bot 的 **link 安装** 接进一个**独立**的
  * DSH_HOME（`.dev/home`，仓库内、已 gitignore），再按目标起调试实例：
  *
  *   npm run dev:web              # web 调试实例（浏览器 UI；Ctrl+C 停）
@@ -12,10 +12,10 @@
  *
  * 隔离边界（对齐 tools/isolate.mjs 的既有约定）：
  *   · DSH_HOME=仓库内 .dev/home —— 账户库/配置/会话/预设/插件状态全在里面，随便造，删了重来。
- *   · 首次从 ~/.dsh 拷一份 `.credentials.yaml`（模型 key）与 whale_craft 的
+ *   · 首次从 ~/.dsh 拷一份 `.credentials.yaml`（模型 key）与 dsh_minecraft_bot 的
  *     accounts.json / config.json 当底子；之后两边互不影响，**绝不写回生产**。
- *   · 记忆跟**会话工作区**走（`<工作区>/.whale-craft`，与生产完全一致，不再有任何重定向）：
- *     请用一个**专门的调试工作区**开会话，别拿真实工作区 —— 否则 `.whale-craft/` 会写进那边。
+ *   · 记忆跟**会话工作区**走（`<工作区>/.minecraft-bot`，与生产完全一致，不再有任何重定向）：
+ *     请用一个**专门的调试工作区**开会话，别拿真实工作区 —— 否则 `.minecraft-bot/` 会写进那边。
  *
  * 🔴 为什么必须走 link 安装：DSH 的运行时解析只认 profile 目录内的包，仓库在 profile 之外，
  *    靠 profile 里一条 cordis.patch.yml 是接不进去的 —— 必须 `dsh plugin add link:<仓库>`。
@@ -174,7 +174,7 @@ function requireDesktopInstall () {
 /**
  * 跑一条 dsh 命令（Node 模式直接起 exe，绕开 .cmd 的引号问题）。
  * 🔴 DSH_HOME 必须显式给成 DEV_HOME：漏了就会去操作生产 home（真实事故：第一版漏了，
- *    一条 `plugin add link:` 把生产 web profile 的 whale_craft 换成了本地 link）。
+ *    一条 `plugin add link:` 把生产 web profile 的 dsh_minecraft_bot 换成了本地 link）。
  */
 function runDsh (runtime, args) {
   return new Promise((res, rej) => {
@@ -194,8 +194,8 @@ function seedDevHome () {
   mkdirSync(DEV_HOME, { recursive: true })
   const seeds = [
     [join(PROD_HOME, '.credentials.yaml'), join(DEV_HOME, '.credentials.yaml')],
-    [join(PROD_HOME, 'whale_craft', 'accounts.json'), join(DEV_HOME, 'whale_craft', 'accounts.json')],
-    [join(PROD_HOME, 'whale_craft', 'config.json'), join(DEV_HOME, 'whale_craft', 'config.json')],
+    [join(PROD_HOME, 'dsh_minecraft_bot', 'accounts.json'), join(DEV_HOME, 'dsh_minecraft_bot', 'accounts.json')],
+    [join(PROD_HOME, 'dsh_minecraft_bot', 'config.json'), join(DEV_HOME, 'dsh_minecraft_bot', 'config.json')],
   ]
   const copied = []
   for (const [src, dst] of seeds) {
@@ -223,10 +223,10 @@ function isLinked (profile) {
   const manifest = join(dir, 'package.json')
   if (!existsSync(manifest)) return false
   try {
-    if (JSON.parse(readFileSync(manifest, 'utf8')).dependencies?.whale_craft !== LINK_SPEC) return false
+    if (JSON.parse(readFileSync(manifest, 'utf8')).dependencies?.dsh_minecraft_bot !== LINK_SPEC) return false
   } catch { return false }
   try {
-    return norm(realpathSync(join(dir, 'node_modules', 'whale_craft'))) === norm(PKG)
+    return norm(realpathSync(join(dir, 'node_modules', 'dsh_minecraft_bot'))) === norm(PKG)
   } catch { return false }
 }
 
@@ -239,7 +239,7 @@ async function linkProfile (profile, runtime) {
   console.log(`profile ${profile}：装 link（${LINK_SPEC}）…`)
   // Windows 上 pnpm 没法直接 rename 覆盖已存在的目录软链（EPERM），旧 link 先摘掉再装。
   // 只摘软链：真目录（npm 装的包）交给 pnpm 自己换，绝不 rm 真实目录。
-  const landed = join(DEV_HOME, 'profiles', profile, 'node_modules', 'whale_craft')
+  const landed = join(DEV_HOME, 'profiles', profile, 'node_modules', 'dsh_minecraft_bot')
   try {
     if (lstatSync(landed).isSymbolicLink()) { unlinkSync(landed); console.log(`   （先摘掉旧的软链 ${landed}）`) }
   } catch {}
@@ -302,13 +302,13 @@ async function startWeb (opts) {
   await linkProfile('web', runtime)
   const port = await pickPort(opts.port)
   say([
-    'whale_craft 调试实例（web）',
+    'dsh_minecraft_bot 调试实例（web）',
     `  地址   下面那行「dsh web: http://…」就是（带 token，直接点开）`,
     `  home   ${DEV_HOME}`,
     `  插件   ${PKG}（link）`,
     `  运行时 ${runtime.label}`,
     `  热更   改 ${WATCH_FILES.join('/')}、${WATCH_DIRS.join('/')}/ 要重启${opts.watch ? ' —— --watch 已开，自动重启' : '，加 --watch 让它自己重启'}；改 client.js 只需刷新浏览器`,
-    '  记忆   跟会话工作区走：<工作区>/.whale-craft（与生产一致；请用专门的调试工作区）',
+    '  记忆   跟会话工作区走：<工作区>/.minecraft-bot（与生产一致；请用专门的调试工作区）',
     '  停止   Ctrl+C',
   ])
   bootWeb(port, opts, opts.open, runtime)
@@ -460,12 +460,12 @@ async function startDesktop () {
   }
   await linkProfile('desktop', desktopRuntime(install))
   say([
-    'whale_craft 调试实例（desktop）',
+    'dsh_minecraft_bot 调试实例（desktop）',
     `  home   ${DEV_HOME}`,
     `  插件   ${PKG}（link）`,
     `  运行时 桌面安装（${install.root}）`,
     '  热更   改服务端代码要退出应用重开（桌面端没有自动重启）',
-    `  日志   ${join(DEV_HOME, 'whale_craft', 'logs', 'whale-craft.log')}`,
+    `  日志   ${join(DEV_HOME, 'dsh_minecraft_bot', 'logs', 'minecraft-bot.log')}`,
   ])
   launchDesktop(install)
 }
@@ -496,14 +496,14 @@ function profileState (profile) {
       ? '未初始化（跑 npm run dev:desktop，首次会引导桌面应用去建）'
       : '未初始化（跑 npm run dev:web 会自动建）'
   }
-  return isLinked(profile) ? `link → ${PKG}` : '已初始化，但 whale_craft 不是本仓库的 link'
+  return isLinked(profile) ? `link → ${PKG}` : '已初始化，但 dsh_minecraft_bot 不是本仓库的 link'
 }
 
 function status () {
   const running = readPidfile()
   const install = findDesktopInstall()
   const npm = findNpmCli()
-  console.log('whale_craft 调试环境')
+  console.log('dsh_minecraft_bot 调试环境')
   console.log(`  桌面安装  ${install ? install.root : '没找到（dev:desktop 用不了）'}`)
   console.log(`  npm dsh   ${npm ? npm.dir : '没找到'}`)
   console.log(`  web 运行时 ${npm ? 'npm 全局 dsh' : install ? '桌面安装（没装 npm 全局 dsh）' : '无 —— dev:web 用不了'}`)
@@ -511,7 +511,7 @@ function status () {
   console.log(`  生产 home  ${PROD_HOME}（只在首次拷一份底子，之后互不影响）`)
   console.log(`  web        ${profileState('web')}`)
   console.log(`  desktop    ${profileState('desktop')}`)
-  console.log('  记忆       跟会话工作区走：<工作区>/.whale-craft（请用专门的调试工作区）')
+  console.log('  记忆       跟会话工作区走：<工作区>/.minecraft-bot（请用专门的调试工作区）')
   console.log(`  web 实例   ${running ? `在跑 pid=${running.pid} port=${running.port}（${running.at}）` : '没在跑'}`)
   console.log(`  桌面应用   ${desktopAppRunning() ? '在跑（⚠️ 与 desktop 调试实例互斥，先退出它）' : '没在跑'}`)
 }

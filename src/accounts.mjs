@@ -1,6 +1,6 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / accounts.mjs —— MC账户库（元数据）+ 凭据封装（密码/token）
+ * dsh_minecraft_bot / accounts.mjs —— MC账户库（元数据）+ 凭据封装（密码/token）
  * ============================================================================
  * 用户 2026-09-16 的要求：
  *   · 默认有一个**离线账户 DeepSeek**；离线账户可改名、可自定义 UUID
@@ -9,9 +9,9 @@
  *   · 🔴 **MCAI 再也拿不到密码和 token**：它只能看到账户基本信息（innerID/ID/UUID/服务器）
  *
  * 两处存储，刻意分开：
- *   · **元数据**（能见人的部分）→ `<工作区>/.whale-craft/accounts.json`
+ *   · **元数据**（能见人的部分）→ `<工作区>/.minecraft-bot/accounts.json`
  *   · **凭据**（密码/token）→ **宿主的凭据服务** `ctx.credentials`
- *     （落在 `$DSH_HOME/.credentials.yaml`，目录 owner-only；key = `whale-craft/<innerID>`）
+ *     （落在 `$DSH_HOME/.credentials.yaml`，目录 owner-only；key = `minecraft-bot/<innerID>`）
  *
  * ⚠️ 为什么不把密码写进工作区文件：MC 模式的 agent 手里有 `read`（tool-fs）——
  *    密码一旦落进工作区，等于直接喂给 LLM。所以宁可"凭据服务不可用就拒绝存密码"，
@@ -32,7 +32,7 @@ export const PRESET_AUTH_SERVERS = [
 ]
 
 const FILE = 'accounts.json'
-const CRED_SCOPE = 'whale-craft'
+const CRED_SCOPE = 'minecraft-bot'
 /** 凭据 key 的两段都要求"小写连字符标识符"，所以 innerID 只用 [a-z0-9-] */
 const INNER_ID = /^acc-[a-z0-9]{8}$/
 
@@ -91,7 +91,7 @@ export function parseAuthlibCard (text) {
 export class AccountStore {
   /**
    * @param {{dir:string, credentials?:object|null, logger?:object|null}} opts
-   *   dir = `<工作区>/.whale-craft`；credentials = 宿主 `ctx.credentials`（可为 null）
+   *   dir = `<工作区>/.minecraft-bot`；credentials = 宿主 `ctx.credentials`（可为 null）
    */
   constructor ({ dir, credentials = null, logger = null } = {}) {
     this.dir = dir
@@ -360,7 +360,7 @@ export class AccountStore {
       const p = rec?.payload
       if (!p || typeof p !== 'object') return null
       return { password: p.password ?? null, accessToken: p.accessToken ?? null, clientToken: p.clientToken ?? null, refreshedAt: p.refreshedAt ?? null }
-    } catch (e) { this.logger?.warn?.(`[whale_craft] 读凭据失败 ${innerID}：${e.message}`); return null }
+    } catch (e) { this.logger?.warn?.(`[dsh_minecraft_bot] 读凭据失败 ${innerID}：${e.message}`); return null }
   }
 
   async deleteCredential (innerID) {

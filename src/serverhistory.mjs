@@ -1,9 +1,9 @@
 // -*- coding: utf-8 -*-
 /**
- * whale_craft / serverhistory.mjs —— 「连接到MC」弹窗的**服务器地址历史**（全局）
+ * dsh_minecraft_bot / serverhistory.mjs —— 「连接到MC」弹窗的**服务器地址历史**（全局）
  * ============================================================================
  * 用户在弹窗里**手动**连过的服务器地址（**只存地址字符串**，不存账户、不存凭据）。
- * 落盘：`<状态目录>/servers.json`（= `$DSH_HOME/whale_craft/servers.json`）—— **全局**，不按工作区。
+ * 落盘：`<状态目录>/servers.json`（= `$DSH_HOME/dsh_minecraft_bot/servers.json`）—— **全局**，不按工作区。
  *
  * 规矩：
  *   · 只记"在本弹窗里点「连接」"的地址；**局域网探测到的直连不记**（调用方负责别调 `record`）；
@@ -20,7 +20,7 @@ export const SERVERS_FILE = 'servers.json'
 export const MAX_SERVERS = 20
 
 export class ServerHistory {
-  /** @param {{dir:string}} opts dir = 状态目录（`$DSH_HOME/whale_craft`；自检里是临时目录） */
+  /** @param {{dir:string}} opts dir = 状态目录（`$DSH_HOME/dsh_minecraft_bot`；自检里是临时目录） */
   constructor ({ dir } = {}) {
     this.dir = dir
     this.file = join(dir, SERVERS_FILE)
