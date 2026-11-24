@@ -7,12 +7,25 @@
 
 - 🎮 **每会话一个独立机器人**：不同对话可以连不同服务器、用不同账号，互不干扰
 - 👀 **看到这个世界**：地形图、高度图，以及方块、实体探索工具，帮助AI了解这个世界
-- 🛠️ **真的会做东西**：在工作台上合成（自动补中间材料、自动找/造工作台）、用熔炉冶炼取产物，还接入了寻路、自动选工具、自动进食、就近采集、自动战斗五个 mineflayer 插件
+- 🛠️ **会合成**：在工作台上做工具、装备、熔炉。材料不够会自己去补（原木→木板→木棍），
+  没有工作台就**先造一个再合成**，做完核对背包里真的有
+- 🔥 **会冶炼**：找熔炉 → 挑燃料 → 放料 → 等烧完 → 把铁锭**取出来**
+- ⛏️ **会走过去干活**：收割远处的树和矿（不是只挖够得着的几格），会绕开障碍
+- ⚔️ **会打架**：追着僵尸/玩家打，血少了会停手
+- 🚶 **会跟着你**：一路跟过来，上下坡、绕墙都会
+- 🍗 **会自己吃东西**：饿了自动吃，阈值可调（比如血量低于 16 也吃）
+- 🔧 **会自己换工具**：挖什么方块就换最合适的那把（认附魔和耐久）
 - 🔔 **单代理+看门狗**：使用一个主代理作为“大脑”，使用看门狗接收事件、记录消息。适时唤醒、打断AI，确保助理及时相应发生的各种事件，如玩家召唤
 - 🧠 **长期记忆**：`<工作区>/.minecraft-bot/` 文档树，由助理自动维护，保证工作、冒险的可持续性
 - 🖥️ **友好的 UI**：游戏状态条、停止按钮、MC设置，以及一键连接到MC，简单易用
 - 🔒 **账户安全**：支持离线账户、第三方皮肤站账户。凭据写在宿主配置中，AI不会直接拿到，使用类似“凭据管理器”的机制进行操作
 - 📢 **提示词调优**：插件内置提示词，教会AI如何与AI交互，如何存储记忆等，也提供“建出好建筑”的建议、引导。部分提示词还可自由修改
+
+> 🧩 上面「会走过去干活 / 会打架 / 会跟着你 / 会自己吃东西 / 会自己换工具」这几项，
+> 装上对应的 mineflayer 插件后最聪明（会自动寻路、自动选工具、自动进食），
+> **不装也能用**，只是退化成"直线走、卡住就跳"这类朴素做法，不会报错。
+> 装全部五个：`dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool mineflayer-auto-eat mineflayer-collectblock mineflayer-pvp`
+> 详见后文「[生存玩法](#生存玩法工作台合成与插件能力)」。
 
 > ⚠️ **当前为预览版 `0.2.0-beta.4`**
 >
@@ -253,12 +266,25 @@ players through tool calls to build, survive and finish tasks.
 
 - 🎮 **One bot per conversation** — different chats can play on different servers with different accounts, independently.
 - 👀 **It sees the world** — terrain and height maps, plus block/entity exploration tools, help the agent understand the world.
-- 🛠️ **It actually makes things** — crafts at a workbench (filling in intermediate materials, finding or building the table itself), smelts in a furnace and takes the output, and integrates five mineflayer plugins: pathfinding, best-tool selection, auto-eat, nearby collecting, and PvP.
+- 🛠️ **It crafts** — makes tools, gear and furnaces at a workbench. Short on materials it gathers them itself (log → planks → sticks), **builds a table first** if there isn't one, then verifies the result is really in the inventory.
+- 🔥 **It smelts** — finds a furnace, picks fuel, loads it, waits, and **takes the ingots out**.
+- ⛏️ **It walks over to work** — harvests trees and ore that are far away (not just whatever is in reach), navigating around obstacles.
+- ⚔️ **It fights** — chases zombies/players, and backs off when health gets low.
+- 🚶 **It follows you** — keeps up across hills and around walls.
+- 🍗 **It eats on its own** — auto-eat when hungry, with a configurable threshold (e.g. also eat below 16 health).
+- 🔧 **It picks the right tool** — swaps to the best tool for each block (honours enchantments and durability).
 - 🔔 **One agent + a watchdog** — a single main agent is the "brain"; the watchdog receives events and logs messages, waking and interrupting the agent at the right moment so it reacts to what happens, e.g. a player calling it.
 - 🧠 **Long-term memory** — a document tree under `<workspace>/.minecraft-bot/`, kept up to date by the agent, so work and adventures continue across sessions.
 - 🖥️ **Friendly UI** — a game status chip, a stop button, MC Settings, and one-click "Connect to MC".
 - 🔒 **Account safety** — offline and third-party (Yggdrasil) accounts. Credentials live in the host config and are never handed to the model directly, via a credential-manager-style flow.
 - 📢 **Tuned prompts** — built-in prompts teach the agent how to interact with the world and how to keep memory, and give advice that guides good builds. Some prompts are freely editable.
+
+> 🧩 The "walks over to work / fights / follows you / eats on its own / picks the right tool" items are
+> smartest with the matching mineflayer plugins installed (real pathfinding, tool selection, auto-eat).
+> They **still work without them** — just degraded (straight-line walking, jumping when stuck) and
+> never an error. Install all five:
+> `dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool mineflayer-auto-eat mineflayer-collectblock mineflayer-pvp`
+> See [Survival gameplay](#survival-gameplay-workbench-crafting-and-plugin-capabilities) below.
 
 > ⚠️ **Preview release `0.2.0-beta.4`**
 >
