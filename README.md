@@ -7,6 +7,7 @@
 
 - 🎮 **每会话一个独立机器人**：不同对话可以连不同服务器、用不同账号，互不干扰
 - 👀 **看到这个世界**：地形图、高度图，以及方块、实体探索工具，帮助AI了解这个世界
+- 🛠️ **真的会做东西**：在工作台上合成（自动补中间材料、自动找/造工作台）、用熔炉冶炼取产物，还接入了寻路、自动选工具、自动进食、就近采集、自动战斗五个 mineflayer 插件
 - 🔔 **单代理+看门狗**：使用一个主代理作为“大脑”，使用看门狗接收事件、记录消息。适时唤醒、打断AI，确保助理及时相应发生的各种事件，如玩家召唤
 - 🧠 **长期记忆**：`<工作区>/.whale-craft/` 文档树，由助理自动维护，保证工作、冒险的可持续性
 - 🖥️ **友好的 UI**：游戏状态条、停止按钮、MC设置，以及一键连接到MC，简单易用
@@ -171,7 +172,7 @@ dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool \
 
 ```bash
 node tools/check-core.mjs     # 全树语法 + 动态 import + 私有字段一致性（改 core.mjs 必跑）
-node selfcheck.mjs            # 1044 条离线断言（假 ctx，不需要 MC 服务器、不连网）
+node selfcheck.mjs            # 1047 条离线断言（假 ctx，不需要 MC 服务器、不连网）
 node tools/check-standalone-import.mjs   # 干净环境回归：pack → 独立目录 install → import 必须成功（慢，CI 跑）
 # 起一个隔离 DSH 实例验证"整树加载"（需要一份 DSH checkout）：
 DSH_ROOT=/path/to/deepseek-harness node tools/isolate.mjs start
@@ -252,6 +253,7 @@ players through tool calls to build, survive and finish tasks.
 
 - 🎮 **One bot per conversation** — different chats can play on different servers with different accounts, independently.
 - 👀 **It sees the world** — terrain and height maps, plus block/entity exploration tools, help the agent understand the world.
+- 🛠️ **It actually makes things** — crafts at a workbench (filling in intermediate materials, finding or building the table itself), smelts in a furnace and takes the output, and integrates five mineflayer plugins: pathfinding, best-tool selection, auto-eat, nearby collecting, and PvP.
 - 🔔 **One agent + a watchdog** — a single main agent is the "brain"; the watchdog receives events and logs messages, waking and interrupting the agent at the right moment so it reacts to what happens, e.g. a player calling it.
 - 🧠 **Long-term memory** — a document tree under `<workspace>/.whale-craft/`, kept up to date by the agent, so work and adventures continue across sessions.
 - 🖥️ **Friendly UI** — a game status chip, a stop button, MC Settings, and one-click "Connect to MC".
@@ -346,6 +348,61 @@ Don't forget to restart DSH.
 
 Outside these two modes, other modes no longer expose MC-play tools (MC admin tools excepted).
 
+## Survival gameplay: workbench crafting and plugin capabilities
+
+> Since `0.2.0-beta.4` the agent **actually makes things** — not just digging and placing, but the
+> whole chain: chop a tree → planks → sticks → build a crafting table → craft tools, gear, a furnace.
+
+### What it can do now
+
+| You ask | What it does |
+| --- | --- |
+| "Craft a wooden pickaxe" | Fills in intermediate materials (log → planks → sticks), **crafts a table first** if there isn't one, then verifies the real inventory count |
+| "What does an iron pickaxe need?" | Looks up recipes (read-only, changes nothing) and reports the materials and what's still missing |
+| "Smelt these ores into ingots" | Finds a furnace → walks there → picks fuel → loads it → waits → **takes the output out** |
+| "Chop that tree" | Walks to the tree first, then mines (not just whatever is within reach) |
+| "Follow me" | Follows you around (navigating around obstacles) |
+| "Kill that zombie" | Chases it down, and backs off when health is low |
+| "Eat something when you get hungry" | Turns on auto-eat with a threshold you choose (e.g. eat below 16 health) |
+
+### Five optional plugins (smarter with them, still works without)
+
+| Plugin | With it | Without it |
+| --- | --- | --- |
+| `mineflayer-pathfinder` | Pathfinding that **goes around obstacles and up/down hills** | Straight-line walking, jumps when stuck |
+| `mineflayer-tool` | Picks the **best** tool for each block (honours enchantments and durability) | First tool in the inventory that can mine it |
+| `mineflayer-auto-eat` | **Eats on its own** when hungry | You have to ask it |
+| `mineflayer-collectblock` | More reliable gather-what's-nearby | Walks to each block and mines it |
+| `mineflayer-pvp` | Combat that **chases the target** | A single swing |
+
+**All of them are optional dependencies** — the plugin runs fine without them; the related capability
+just degrades (it never errors out). To enable them all, install them into your DSH profile:
+
+```bash
+# web profile shown; for desktop use --profile desktop
+dsh plugin --profile web add mineflayer-pathfinder mineflayer-tool \
+  mineflayer-auto-eat mineflayer-collectblock mineflayer-pvp
+```
+
+Restart DSH afterwards. In game, ask "which plugins are installed?" and it will report back via
+`mc_plugins` (installed / loaded / auto-eat enabled).
+
+### How to use it (just talk to the agent)
+
+```
+You: craft me a stone pickaxe
+It:  (checks recipe → no cobblestone → goes mining → comes back and crafts → reports "done")
+
+You: eat when you're hungry, and also below 16 health
+It:  (enables auto-eat and sets the threshold)
+
+You: smelt these two iron ores into ingots
+It:  (looks for a furnace → none → crafts one and places it → smelts → hands you the ingots)
+```
+
+> When materials are genuinely short it doesn't just say "missing materials" — it reports a
+> **gap list** (what's missing and how many), so you can send it mining or top up yourself.
+
 ## Where things live
 
 
@@ -365,7 +422,7 @@ Outside these two modes, other modes no longer expose MC-play tools (MC admin to
 
 ```bash
 node tools/check-core.mjs     # whole-tree syntax + dynamic import + private-field consistency
-node selfcheck.mjs            # 1044 offline assertions (fake ctx; no MC server, no network)
+node selfcheck.mjs            # 1047 offline assertions (fake ctx; no MC server, no network)
 node tools/check-standalone-import.mjs   # clean-env regression: pack → install → import must succeed (slow; CI)
 # run an isolated DSH instance to check whole-tree loading (needs a DSH checkout):
 DSH_ROOT=/path/to/deepseek-harness node tools/isolate.mjs start
