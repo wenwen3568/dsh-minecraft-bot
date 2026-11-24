@@ -1,0 +1,323 @@
+# src/ 模块参考
+
+> 快照：**0.2.0**（开发中，未发布）。所有模块都是纯 ESM，**只有 config.mjs 引了 express.mjs 一处模块间依赖**，其余全部由 `index.js` 组装。
+> 通用规矩：任何可能永不 settle 的 await 套 `withTimeout`/`raceAbort`；日志走 `logLine()`。
+
+---
+
+## 1. `src/core.mjs` —— McBot（mineflayer 封装，不依赖 DSH）
+
+**导出**：`McBot`（default 也是它）、`Vec3`、`DEFAULTS`、`TIMEOUTS`、`DEFAULT_COMMAND_WHITELIST`、`withTimeout`、`raceAbort`、`lossless`、`glyphOf`、`logLine`、`libraryInfo`、`sessionFlags`、`takeAuthJoinError`、`wrapYggdrasilServer`、`friendlyAuthError`。
+
+### 工具函数
+
+- `withTimeout(promise, ms, label)`：race 守卫定时器**故意不 unref**（否则只剩它跑时进程提前退出）；超时错误带 `mcTimeout:true`。
+- `raceAbort(promise, signal, label)`：给 await 接 abort（宿主 cancel 不杀同进程 promise）；错误带 `mcAborted:true`。
+- `lossless(value)`：宿主工具返回值校验要求纯 JSON（原型必须是 `Object.prototype`/null，不允许 `-0`）。类实例只留自有可枚举属性、Vec3→`{x,y,z}`、Date→ISO、Map/Set 展开、循环→`'[circular]'`、NaN/±Inf→null。
+- `logLine(...)`：独立落盘（无实例也能用），前缀 `[whale_craft HH:MM:SS]`，写 `DEFAULTS.logFile`（默认 `$DSH_HOME/whale_craft/logs/whale-craft.log`，`MC_LOG` 可覆盖；**不写包目录**）。
+- `libraryInfo()`：报 mineflayer 版本 / testedVersions / minecraft-data 版本，不连服。
+- `sessionFlags(mode)`：离线账户 `haveCredentials/useAccessToken=false`（假 token 做 session join 会 `ForbiddenOperationException`，真炸过）；yggdrasil=true。
+- `wrapYggdrasilServer` / `takeAuthJoinError` / `friendlyAuthError`：yggdrasil 库新旧回调兼容层 + 认证错误转"可执行的人话"（`needUserAction:true`）。
+
+### McBot 类
+
+- 构造：`{...config, instanceId}`；字段含 `bot/sub/connecting/connectedAt/lastError/autoReconnect/reconnectDelay/reconnecting/reconnectPending/chat/stopped/lastTimeout/abortSignal/stats{connects,deaths,chats,lastEventAt,timeouts}`。
+- **`online` getter** = `bot.entity 存在 && _client.ended !== true` —— 幽灵在线的判据（见下）。
+- `connect(opts)`：参数 `{host, port, auth, onAuth}`；`auth` 是**唯一凭据入口**（`{mode:'offline'|'yggdrasil', username, password?, server?...}`），绝不出现在任何返回值。2026-10-05：`subserver`/`version` 已删（版本永远自动探测；连上后不在支持范围则断开抛错）。细节：
+  - 已在线且同 sub+host → 直接返回；并发 connecting → 等同一个 promise；
+  - 顶号（`already connected|already logged` 且建连 <9s）最多重试 4 次 × 3.5s；失败**保留原连接**；
+  - yggdrasil 才设 `sessionServer`；`fakeHost: sub` 过 HAProxy 子服路由；等 spawn 超时 `connectTimeoutMs`（45s）。
+- **重连**：延迟 5s 起、失败翻倍上限 60s、成功复位；`reconnecting` 只覆盖两次尝试间窗口，`reconnectPending` 覆盖**整个断线期**（直到真重连成功/手动 connect 成功）。
+- **`offline` 事件**（`b.on('end')` 里 emit）：`{sub, reason: lastError ?? '连接结束', willReconnect, at}`；`willReconnect = autoReconnect && bot===b && !stopped`。**断线必须进上层队列**（0.1.7 修）。
+- `disconnect(reason)`：停重连/观察器 → `quit()` 宽限 3s（计时器故意不 unref）→ 没走掉才强断；返回 `{graceful,forced,ms}`。`authOnly()`：只认证不连接（账户 refresh 用）。
+- **事件清单**：`spawn {sub,position,gamemode}`、`offline`、`reconnect {sub}`、`death {position}`、`damage {health,position}`（health≤6）、`chat {who,text}`（不含自己；1.5s 同人同文去重）、`system {text}`、观察器 `playerJoin/playerLeave {who}`、`teleport`（>24 格/秒）、`pushed`（≥2 格且非自移）、`pickup {items}`、`log`。
+  - ⚠️ **core 没有 `heartbeat` 事件** —— 心跳是看门狗配置项，靠 `stats.lastEventAt` 判。
+- **聊天识别**（`wireChatEvents`/`#playerChatFrom`）：`player_chat` 包（签名）直接处理；`message` 事件里 `position==='chat'` 跳过防重复；`game_info` 必 system；其余先试玩家聊天判据（`chat.type.text` / `chat.type.team.*` / `commands.message.display.incoming` / 兜底渲染形状正则 `<who> text`）——覆盖"被服务端塞进 system 位置的玩家聊天"。
+- **按键上报兼容层（`player_input`，为 26.2 加的）已于 2026-10-02 整体移除**：上游还连不了 26.2（mineflayer 4.39.0 的 testedVersions 只到 26.1；minecraft-data 3.117.0 只有元数据、无数据目录），半吊子支持先撤。将来重建**必须**沿用"先查后发"护栏——教训见 [history.md](history.md)（protodef 对未知包名不报错，写出 `02 00 00` 会被服务端当 `accept_teleportation` → 秒踢）。
+- **动作方法**（全部经 `#t()` 超时包装，超时/中断自动松 7 个控制位）：`walkTo`（arrive 1.6、|dy|≤1.5、一直按 forward、1.2s 无进展跳）、`flyTo`（仅创造，finally 必 `stopFlying` 恢复重力）、`dig`（自动换收割工具）、`placeBlock`（判据链：选块→缺货自动给→距离>5.5 直接抛"够不着"→目标必须 `canPlaceInto`（boundingBox 'empty'，水/岩浆/草花可放）→ 找 6 邻域参照→**复验 `blockAt` 才报 placed**）、`breakBlock`（复验 `now!==name` 才报 broken）、`build`、`giveItem`（协议级 `creative.setInventorySlot`）、`clearInventory`、`useBlock`、`attack`、`tossItem`、`runSequence`（≤64 步，见工具表）、`command`（必须 `/` 开头，带 allow 回调）、`chatSay`。
+- **观察**：`scan` / `heightmap`（R≤96）/ `mapImage`（RGBA，白框标自己）/ `entities` / `inventory` / `waitForChunks`（默认 20s；`blockAt` 脚下出现即算到）/ `status()`（含 ghost 特判）/ `connectionView()`（只出 host/port/**version**，不带账号）/ `context({survival})`（游戏上下文）/ `players()`（tab 名/档案名/uuid）/ `heightGrid·heightImage·heightGlyphs`（mc_height 高度/地势图；`surfaceY` 单列地表 Y）。
+- **错误纪律**：`#reportError` 是唯一错误上报口 —— 记 lastError+日志，**仅在有 listener 时才 emit('error')**（EventEmitter 无监听者 emit('error') 会 throw，曾把整个 DSH 带走）。
+- 不变量：`setInterval` 回调必须自兜异常（宿主只对 `unhandledRejection` fail-loud，`uncaughtException` **直接杀进程**）；`_selfMovingAt` 用于把自走/自飞从 teleport/pushed 误判中排除（3s 窗口）。
+
+## 2. `src/wait.mjs` —— waitForEvents
+
+- 参数 `{sess, from, kind=null, waitSec=0, signal=null, pollMs=250}`（`now`/`sleep` 可注入，供测试）。
+- 返回 `{waitedMs, interrupted, reason}`。收工条件按序检查：① `signal.aborted` → `reason:'用户停止'`（interrupted:false）；② `sess.waitInterruptedAt > startedAt` → `interrupted:true, reason: waitInterruptReason`；③ 新事件出现 → `reason:'有事件'`；④ 超时 → `reason:null`。
+- **存在的理由**：宿主 `agent.steer` 在**下一步 step 边界**消费，而 step 边界要等当前工具调用返回 —— 没有打断机制时，`mc_events{waitSec:120}` 会把看门狗的唤醒文案**压到等待结束**才投递（"等待堵住了它正在等的那件事"，0.1.7 事故）。
+
+## 3. `src/watchdog.mjs` —— 单脑看门狗
+
+**导出**：`Watchdog`、`WATCH_DEFAULTS`。
+
+- 构造 `{ctx, sess, agent, promptSignal}`（promptSignal **必传**，`sessionController.prompt` 是 @Remote）。
+- `arm()` 幂等：`learnName(sess.bot.username)`（**从登录档案现学游戏名**，不写进源码——防私人名字随开源副本泄露）→ 绑 bot 事件 → `#startJob()`（宿主 jobs，`kind:'mc-watch'`，`owner:agent`；无 jobs 服务降级"无 job 模式"）→ 1s `setInterval(#tick)`。
+- `disarm(reason, {notify, fromJob})`：先 teardown，再把 job 结算（**幂等**，只结算一次；`readOutput` = 留档末 30 条）；`notify` 时注入"你已经不在 MC 里了…"。自动关闭时机：offline 且不重连 / `mc_disconnect{notify}` / stopSession / 会话 destroy / 宿主 kill job（`fromJob:true`）。
+- **唤醒矩阵**（`wakeOn`，`mc_config` 可改）：
+
+| 项 | 默认 | 判定 | 文案要点 |
+| --- | --- | --- | --- |
+| `mention` | ✅ | `calledBy()` 正则命中 `mentionPatterns` | `[有人喊我] who text ← 命中叫法` |
+| `nearbySpeech` | ✅ | hypot ≤ `nearRadius`(16) | `就在我旁边` |
+| `damage` | ✅ | damage 事件 | `血量降到 N` |
+| `death` | ✅ | death 事件 | `我死了` |
+| `teleport` | ✅ | teleport 事件 | `位置瞬移 N 格` |
+| `pushed` | ❌ | pushed 事件 | `被动移动` |
+| `itemPickup` | ❌ | pickup 事件 | `捡到 …` |
+| `playerJoin` / `playerLeave` | ❌ | 对应事件 | `who 上线/下线了` |
+| `disconnect` | ✅ | offline 且 willReconnect | `连接断了（reason）——正在自动重连…` |
+| `heartbeat` | ❌ | 距上次唤醒 ≥ `heartbeatSec`(300) 且在线 | `【心跳｜已挂机 Ns】` |
+
+- 同话题延续：唤醒后 `topicWindowSec`(120s) 内的发言**直接算 mention**。命中进 `pending` 攒 `observeWindowMs`(2s) 合并 → `#flush` 过 `maxWakePerMinute`(6) 限流 → 一条 `【MC 看门狗｜标签】` 正文注入。另有 `followUpAfterSec`(45)：唤醒后 45s 无下文补提醒一次。
+- **`#inject`（唯一注入口）**：① gate（非 MC 模式只记账 drop）；② **先 `sess.interruptWait(kind)`**；③ 首选 `agent.steer(userMessage(...))`（`source:{kind:'plugin:whale_craft',form:'notice'}`——v4 规范值，宿主渲染成折叠一行；空闲时起一轮、运行中下一步插话）；④ 兜底 `sessionController.prompt({mode:'steer'}, promptSignal)`。**绝不用** `followup`/queue 类"冒充用户发言"的通道。
+- 留档 `this.log`（内存，上限 200，`#record` 是唯一写入点）—— 与 `sess.events` 分开，双写曾是 bug。
+
+## 4. `src/memory.mjs` —— MemoryStore（记忆树）
+
+- 构造 `(root, {create=true})`；**生产用 `create:false`**：目录只在两个时机建（首次 MC 模式会话 / 点开 MC设置，`ensureMemoryRootCwd` + `seededRoots` 去重）。
+- 常量：单文件文本 256KB、图片 16MB、最多 2000 文件、深度 ≤5、段名 `^[\w.\-一-龥 ]+$`。
+- **`safePath(rel)` 是路径安全关口**：拒空/绝对路径/盘符/`.`/`..`/深层/超长/非法段，`resolve` 后必须仍在 root 内。**不再做文件名封锁** —— 根级的受保护文件（RULES.md/AGENTS.md/config.json，见 src/protected.mjs）在这里**放行（读允许）**，结果带 `protected:true`，由写类方法显式拒绝（用户 2026-10-03：可读不可写）。
+- 方法：`ensureRoot/ensureReadme`（骨架只建一次）· `pathFor({topic,server})`（server 缺省 `_global/`；无扩展名补 `.md`）· `list()`（根级 README 与受保护文件不算记忆；解析标题/条目数/摘要）· `renderTree()`/`indexText()`（5s 缓存；注入用 = README 正文 + 目录树）· `read()`（文本→content；**图片→附件**（工具层 `attachments.saveImage`）；二进制→元信息）· `put()`（**把工作区任意文件复制进记忆**，16MB，name 清洗）· `append({text,key})`（单条 ≤4000 字；同 key 正则替换旧 bullet）· `write()`（整文件覆盖，拒图片）· `delete()` · `search()`（跨文本文件逐行，limit ≤100）· `overview()`。
+- `append/write/delete/put` 对 `protected` 目标一律抛"只读"（`protectedWriteError`）。写后清 `_textCache`（投递的索引恒新）。⚠️ `list()` 只跳过**根级**的 README 与受保护文件，`.out/`/`.express/` 会被遍历进去（未专门跳过）。
+- 🔴 **工具 `mc_kit_memory` 已于 2026-10-07 移除**（同日又去掉 README 索引的**自动注入**）：agent 改用宿主受限文件工具（read/write/edit/glob/grep/read_image）直接读写 `.whale-craft/`。本模块**保留为库**——`put/append/write/delete/search/overview/read` 与读侧的 `indexText/renderTree/list` 均不再有生产消费方，仍由自检单元测试直接覆盖；`read()` 的图片附件化接线随工具移除（看图改由宿主 `read_image` 承担）。
+
+## 5. `src/agentsmd.mjs` —— RULES.md 行事准则
+
+- 路径：`agentsMdPath(dir)=<记忆根>/RULES.md`；`legacyAgentsMdPath`（老 AGENTS.md，只用于迁移/守卫）。
+- `DEFAULT_AGENTS_MD`（默认准则）小节：宗旨 / 称呼 / 记忆 / 边界信息 / 登录游戏 / 看门狗 / 聊天 / 建筑须知 / 较长思考 / 硬规矩。
+- `migrateLegacyAgentsMd`：老 `AGENTS.md` → 内容搬进 RULES.md，原文件**改名**为 `AGENTS.md.bak-<时间戳>`（不删：内容不丢、宿主不再认）；幂等。
+- `readAgentsMd`（`source` 按内容是否逐字等于默认判 `default/custom`）；`writeAgentsMd`（空拒；≤128KB）；`resetAgentsMd`（**把默认写回文件**而非删除）。
+- 路径守卫（原 `isAgentsMdPath`）已**移出**到 `src/protected.mjs`（与 config.json 统一判定）。
+- `syncRulesVersion(dir, version, {follow})`：无文件→建默认+`created`；有文件无版本记录→只记版本 `marked`（**不覆盖**）；版本变+follow 开→替换为默认 `replaced`；follow 关→只更新记录 `kept`（以后打开**不翻旧账**）。版本读写走 `src/wsconfig.mjs` 的 `readRulesVersion/setRulesVersion`（存 `<记忆根>/config.json` 的 `rulesVersion` 字段；旧 `.rules-version` 标记由 wsconfig.migrate 迁入后删除）。
+
+## 6. `src/version-prompt.mjs` —— 版本硬提示词
+
+- 导出 `versionPromptText/versionPromptHash/versionPromptTitle/versionPromptSource`。哈希 = 正文 sha256 前 8 位（只标正文；正文**不含版本号**，跨版本稳定）。
+- 正文两条：① 本版本 `mc_move/mc_act/mc_build` 不成熟 → 优先 `mc_command`（`/tp` `/setblock` `/fill` `/clone`），被拒再回退；② 本版本生存/冒险能力极弱 → 先明确告知用户再尽力（已有记忆优先按记忆行事）。
+- **不可编辑、无开关**（硬编码随版本发布）——与 RULES.md（Master 维护）、记忆（玩出来的经验）三分工。
+
+## 7. `src/user-message.mjs` —— 插件提示行构造
+
+- `userMessage(input)`：宿主 `@deepseek-ai/dsh-llm` 的 `createUserMessage` 优先；解析不到/异常 → `builtinUserMessage`（自带等价实现：`{role:'user', content, source:{kind:'plugin:whale_craft'}, id}`）。
+- `messageFactoryKind()`：诊断 `'host'|'builtin'`。
+- ⚠️ 存在理由：0.1.4 时该包漏进依赖声明 → 别人 npm 装出来"工具都在、提示词全无"。**依赖声明不能少**，兜底只是保险。
+- 🔴 `source.kind` 必须是 **v4 规范值 `plugin:whale_craft`**（v4 会话格式拒绝裸露的 `'plugin'`；宿主对 source 原样透传）——2026-10-04 按 PR #2（@swan3146）的真机实验 + 宿主 `dsh-session-format-v3-to-v4` 源码核实。
+
+## 8. `src/config.mjs` —— 配置 + preset 规划
+
+### DEFAULT_CONFIG（键 → 默认 → 含义）
+
+| 键 | 默认 | 含义 |
+| --- | --- | --- |
+| `commandWhitelist` | 22 个指令名 | `mc_command` 放行；支持精确名 / `/正则/flags` / `"*"` |
+| `mcModePresets` | `['minecraft','minecraft-plus','whale_craft']` | "MC 类模式"判据（含 MC+；`whale_craft` 为历史名单项） |
+| `mcPlusPresets` | `['minecraft-plus']` | 其中哪些是 **MC+ 变体**（开放标准模式全部工具；须同时 ∈ mcModePresets） |
+| `mcMode.allowOtherTools` | `[]` | MC 模式白名单**额外**放行（只能收窄，不能凭空加；MC+ 不适用） |
+| `mcMode.hideAdminTools` | `true` | 隐藏 `mc_admin_*`（仅 MC 模式；MC+ 可见；另有 guard 硬拒） |
+| `allowAllCommands` | `false` | 指令白名单总开关 |
+| （提示词三开关 `injectWhaleCraftAgentsMd` / `injectWorkspaceAgentsMd` / `rulesFollowVersion` **已下放为按工作区**，存 `<工作区>/.whale-craft/config.json`，见 [§14 wsconfig](#14-srcwsconfigmjs--按工作区的配置)） | | |
+| `ensureMcPreset` | `true` | 旧宿主遗留：目录式自举「MC模式」（0.2.0-rc.2+ 由 `presets/*.patch.yml` 声明提供，此键 no-op） |
+| `expressWebEnabled` | `false` | **web 模式**文件分享开关 |
+| `expressWebBase` | `''` | **web 模式**的访问 base（如 https://example.com） |
+| `expressDesktopEnabled` | `false` | **desktop 模式**文件分享开关 |
+| `expressDesktopPort` | `16049` | **desktop 模式**的独立托管端口（只监听 localhost） |
+| `exposeDebugTools` | `false` | 「MC设置 → 调试」页的「开放助手调试工具」开关（工作区无关）：是否向助手暴露调试用途的工具 |
+| `allowWebSearch` | `true` | 「MC设置 → 联网搜索」页的「允许联网搜索」开关（工作区无关）：MC 模式下是否暴露宿主 `web_search`；**MC+ 不受影响** |
+| `webFetchEnabled` | `false` | 「MC设置 → 联网搜索 → 网页抓取」的「允许网页抓取」开关（工作区无关）：是否暴露 `mc_kit_web_fetch`（**MC 与 MC+ 都受此门控**） |
+| `webFetchDomains` | `['minecraft.wiki','*.minecraft.wiki']` | 允许抓取的域名表：精确名 / `*.example.com` 通配 / `/正则/` / `*`；空表 = 一个都不允许（匹配函数 `hostAllowed`） |
+| `allowAllFetchDomains` | `false` | 抓取的「允许所有域名」开关（打开后不看域名表） |
+| `webFetchAllowHtml` / `webFetchAllowText` / `webFetchAllowImage` | 都 `true` | 「允许的内容类型」三开关（工作区无关）：HTML / 文本由宿主区分（只到这两档，响应里只有 `body.kind`）；**图片走插件自己的公网下载器**，格式是**内置名单**（`WEB_IMAGE_FORMATS` = png/jpeg/gif/webp，即宿主附件服务认的那四种），**不可配置** |
+
+- `PluginConfig`：`load`（坏配置不崩、记 `lastError` 按默认跑；**顺带跑 `migrate()`**）、`set` 只认 `TOP_KEYS`（= DEFAULT_CONFIG 键）且过 `validate`、`values()` 深合并（数组整体覆盖）；语义 getter（`mcModePresets/mcPlusPresets/expressWebEnabled/expressWebBase/expressDesktopEnabled/expressDesktopPort/commandAllowed/isMcModePreset/isMcPlusPreset`…）每次现读 ⇒ **改完热生效**。
+- `migrate()`：文件分享键逐档搬（都**删旧键**、只在真改动时落盘）——① 老 `expressMode: 'off'|'online'`（曾含 `'local'`）→ `expressWebEnabled`（`online`→`true`，其余→`false`）；② 2026-10-07 拆键：`expressEnabled`→`expressWebEnabled`、`expressBase`→`expressWebBase`。
+- `legacyPromptSwitches()`：从**文件原值**里取旧版全局存过的三个提示词开关（只取显式设过且类型合法的）—— 只作工作区建档时的一次性 seed 来源（消费方 index.js → `wsconfig.migrate`）。
+- `resolveStateDir`：`WHALE_CRAFT_STATE_DIR` → `WHALE_CRAFT_DIR`+whaleDir → `$DSH_HOME/whale_craft` → `~/.dsh/whale_craft`。
+
+### preset 规划（纯函数；**遗留** —— 只服务旧宿主的目录式自举；0.2.0-rc.2+ 由包内 `presets/*.patch.yml` 声明，见 architecture §8）
+
+- `PRESET_ID_RE=/^[a-z0-9][a-z0-9-]*$/`（与宿主同名规则；下划线非法 ⇒ 目标 id 不能叫 whale_craft）。
+- `MC_PRESET_SPEC=7`：规格版本，**改动 = 下次启动重建自建 preset**；`planPresetAction` 判定序：不存在→`create`；非本插件建的→只在简介是复制残留时 `meta` 否则 `leave`；无 compositionHash→只敢 `meta/leave`；spec 变→`rebuild`；组成被用户改过（hash 不符）→`leave`；官方源变了（源 hash 变）→`rebuild`；显示文本不对→`meta`。
+- `pickPresetTarget`（取 `mcModePresets` 里第一个合法的）/ `PREFERRED_PRESET_SOURCES=['minimal','standard','ptc']` / `pickPresetSource` / `isCopiedPresetDescription`。
+- `PERSONA_TEXT_KEYS=['prefix','text']` + `personaTextKeyOf`：跨 DSH 版本探测 persona 键名。
+- `patchPersonaInComposition`（换 persona 正文；`complete:true→false`、`includeRuntimeContext:false→true`，后者会压掉其它提示段）、`disableShellInComposition`（persistent-shell `disabled:true`）、`patchToolGroupsIntoComposition`（`MC_PRESET_TOOL_GROUPS`：`tool-fs`/`tool-jobs`/`present`/`compaction`）。
+
+## 9. `src/accounts.mjs` —— 账户与凭据
+
+- **存储分离**：元数据 `$DSH_HOME/whale_craft/accounts.json`；凭据（password/token/clientToken）**只进宿主凭据服务**（`ctx.credentials`，key=`whale-craft/<innerID>` → `$DSH_HOME/.credentials.yaml` owner-only）。凭据服务不可用 → **直接抛错拒绝，绝不降级写明文**（MC agent 手里有 read 工具）。
+- 类型：`offline` / `yggdrasil`（第三方皮肤站，authlib-injector 风格）/ microsoft（`add` 抛"暂不支持"）。
+- 工具函数：`offlineUuid`（复刻 Java `UUID.nameUUIDFromBytes("OfflinePlayer:<name>")`：md5+v3+variant）、`dashUuid`、`normalizeServerUrl`、`parseAuthlibCard`（解析 `authlib-injector:yggdrasil-server:<urlencoded>` 卡片/裸网址，raw 与 decode 各试一次）。
+- `AccountStore`：`load`（坏库降级空库记 `loadError`）/`save`/`ensureDefaults`（`seeded` 标记**只种一次**：预置 LittleSkin 认证服 + 默认离线账户 `DeepSeek`，可删且不长回）/`view`（**绝不含密码/token**）/`add/update/remove`（remove 连带删凭据并让渡默认）/`search`/`resolve`。
+- 凭据方法：`setCredential`（`kind:'grant'` payload）/`getCredential`（**仅内部登录流程**）/`deleteCredential`/`refreshCredentialIndex`（宿主 credentials `listRecords` 是同步的）。
+- 认证服务器：`listAuthServers/addAuthServer/renameAuthServer`（id 永不变）/`removeAuthServer`（被账户占用拒删）。网络登录本身在 core.mjs（yggdrasil 流程），本模块只承载元数据/凭据脚手架。
+
+## 10. `src/express.mjs` —— 发布区（纯函数，不碰 fs）
+
+- 常量：`EXPRESS_DIR='.express'`、`OUT_DIR='.out'`、`EXPRESS_URL_PREFIX=/api/whale-craft/express`、`WORKSPACE_ID_RE`。
+- `parseExpressPath`：要求**已解码**的 pathname（`%2e%2e` 先还原成 `..` 才可判）；首段 workspaceId 过正则，其后 ≥1 段。
+- `safeExpressTarget(root, segments)` 逐段拒：空段/`.`/`..`/含 `/` 或 `\`/盘符/`~` 开头/控制字符/段 >255；拼完复查仍在 root 内（纵深防御，真正兜底是路由层 `realpath`）。
+- `mimeOf`（全扩展名放行，未知 octet-stream）、`SANDBOX_TYPES`（svg/html/xml/js → CSP sandbox 头）。
+- `normalizeExpressBase`（必须 http(s)、去尾斜杠、非法 null）、`onlineUrlOf`、`expressRefFor`（abs 必须落在 `.express/` 下，`.out` 文件返回 null；产出 `{rel, url, localPath, markdown}`——`url`=含 `EXPRESS_URL_PREFIX` 的 web 形态，`localPath`=`/<uuid>/<rel>` 供 desktop 拼 `http://localhost:<port>`）、文案常量 `EXPRESS_OFF_TEXT` / `EXPRESS_NEED_BASE_TEXT` / `EXPRESS_PORT_BUSY_TEXT(port)`（逐字：自检断言原文）。
+- **桌面独立端口**：`DEFAULT_EXPRESS_PORT=16049`、`EXPRESS_HOST='127.0.0.1'`、`isExpressPort` / `normalizeExpressPort`、`parseExpressLocalPath(pathname)`（解析 `/<uuid>/<seg…>`，**无** `/api/…` 前缀）。
+
+## 10b. `src/express-server.mjs` —— 桌面模式的发布区独立端口
+
+- `ExpressShareServer`：`start(port)`（先 `stop()` 再绑 `127.0.0.1`，**尽力**再补 `::1`；**只绑回环**）、`stop()`、`status`=`{listening, port, wantPort, error}`。出错（EADDRINUSE/EACCES…）**不抛**，落 `error`。
+- `hostIsLoopback(host)`：最小 Host 回环栅栏（防 DNS-rebinding，外部域名解析到 127.0.0.1 也拒）→ 403。
+- `portAvailable(port)`：一次性 bind+close 探测（`/api/mc/express/port` 用；当前已监听端口由调用方特判为可用）。
+
+## 11. `src/image.mjs` + `src/png.mjs` —— 图像
+
+- `image.mjs`：`sharp` 是**可选依赖**（`createRequire` 懒加载）；`imageEngineAvailable()/imageEngineError()`；缺失时 `need()` 抛"图像引擎不可用（sharp 解析失败：…）"，**不静默假装成功**。`ImageEngine`：`info` / `embed`（图片→data URI + `<image>` tag，引图进 SVG）/ `render`（SVG→PNG，density×scale，scale 夹 0.05-16）/ `grid`（≤64 张拼网格，**返回 SVG 文本**可继续编辑）/ `save`。
+- `png.mjs`：零依赖 RGBA8 PNG 编码器（color type 6、8bit、filter 0、deflate 9）；`encodePng(width,height,rgba)`。用途：`mc_map` 出真地形图时避免给宿主多加原生依赖。
+
+## 12. `src/lan.mjs` —— 局域网公告监听
+
+- `LAN_BROADCAST={group:'224.0.2.60', port:4445}`；`parseLanBroadcast`（`[AD]…[/AD]` 取 1-65535 端口，`[MOTD]` 可选）。
+- `listenLanBroadcast({seconds=3})`：udp4 + reuseAddr 绑 4445 → `addMembership`（禁多播环境**静默降级**为只听本机广播）；按 `host+port` 去重；时长夹 [0.5, 15]s；**错误/超时全 resolve 空数组、绝不 reject**；`timer.unref`。**只被动听，不扫端口**（2026-09-18 砍掉扫网段）。
+
+## 13. `src/ping.mjs` —— STATUS ping
+
+- 协议栈锚点：`requireFromMineflayer` 从 mineflayer 自己的依赖树 `require('minecraft-protocol')`（与 mc_connect 同栈同版本表）。
+- `parseAddress`（默认 25565；认 `host`、`host:port`、`[::1]:25565`；裸 IPv6 抛错）；`formatAddress`（**逆操作**：IPv6 加方括号、默认端口省略）；`flattenMotd`（拍平 + 去 `§` 色码）；`friendlyNetError`（ECONNREFUSED/ETIMEDOUT/ENOTFOUND/… → 人话；`unsupported protocol` → 建议手填 version）。
+- `statusPing({host, port, timeoutMs, fakeHost, version})`：**永不抛异常**（P0 教训：一切 reject/超时收敛成 `{ok:false, error, hint}`）。流程：不用上游 `mc.ping`（不暴露 client、超时 120s），用 `minecraft-protocol` 原语自建：握手（nextState=1）→ STATUS → `ping_start` → 收 `server_info` → 写 `ping` 量往返延迟 → 无论成败 `client.end()+socket.destroy()` 防挂 socket。硬超时夹 [1s,30s] 默认 5s；成功返回 `{ok:true, elapsedMs, handshakeMs, statusMs, latencyMs, version, protocol, players{online,max,sample≤12}, motd, motdRaw, hasFavicon}`。
+
+## 13b. `src/serverhistory.mjs` —— 「连接到MC」的服务器地址历史（全局）
+
+- 落盘 **`<状态目录>/servers.json`**（`$DSH_HOME/whale_craft/`）——**全局**，不按工作区；形态 `{version:1, recent:[addr…]}`。
+- `ServerHistory({dir})`：`list()` / `record(addr)`（**去重 + 最近优先 + 封顶 `MAX_SERVERS=20`**）/ `remove(addr)`；读宽容（坏文件按空跑）、写失败只记 `lastError`。
+- **只存地址字符串**（不存账户/凭据）。**只有手动点「连接」才 `record`**；局域网直连不记（调用方保证）。
+
+## 13c. `src/connect-prompt.mjs` —— 「连接到MC」注入的提示词
+
+- `buildConnectPrompt({address, account, via})` → 英文正文（`via='lan'` 时追加"该地址在局域网、可能是临时的"一行）。
+- **追加插槽 `CONNECT_PROMPT_APPENDERS`**：`(ctx)=>string` 的数组，非空即按序追加（"因属性追加提示词"的扩展点，默认空）。
+- 可读版本同步在 `dev-docs/prompt/connect_to_mc.md`（**改一处要改两处**）。
+
+## 13d. `src/mcversion.mjs` —— MC 版本「在不在支持范围内」判定（2026-10-05）
+
+- **口径**（用户 2026-10-05 拍板）：范围 = mineflayer `lib/version.js` 的 `testedVersions` **上下界**，中间版本按**数值**比；**快照一律不支持**；判不了返回 `null`（按支持处理）。不连服、无副作用。
+- `supportedRange()`：`{oldest, latest, tested[]}`（记忆化；读不到 mineflayer → null）。与 `core.mjs::libraryInfo` **同源**。
+- `isVersionSupported(version, range?)`：`true`/`false`/`null`。纯函数，`range` 可显式传（selfcheck 不依赖本机 mineflayer）。
+- `parseRelease`（`[maj,min,patch]`，缺段补 0）/`compareVersions`/`classifyVersion`（`release|snapshot|unknown`）/`isSnapshotVersion`。
+- **两套规则都认**：经典 `1.21.11` 与**新 26.x 规则** `26.1`（26>1，序关系天然成立）；快照含老式 `25w46a`、新式 `26.3-snapshot-10`/`26.3-pre-2`、旧式 `1.21.4-pre1`。
+- 调用点：`index.js::probeLan`（局域网行加 `supported` 给前端）、`core.mjs::libraryInfo`（复用区间）。
+
+## 14. `src/wsconfig.mjs` —— 按工作区的配置
+
+> 用户 2026-10-03 定：按工作区独立的设置（提示词版本 + 「MC设置→提示词」三开关）统一存 `<记忆根>/config.json`（默认 `<工作区>/.whale-craft/config.json`），取代原来的 `.rules-version` 独立标记 + 全局三开关。
+
+- 文件形态 `{schema:1, rulesVersion, rulesFollowVersion, injectWhaleCraftAgentsMd, injectWorkspaceAgentsMd}`；缺键按 `WS_DEFAULTS`（= 下放前的全局默认）补齐；**未知键保留**（前向兼容）。
+- `load` 不建目录、不抛：文件缺失/坏 JSON/非本格式 → 默认值 + `lastError`；`rulesVersion` 读不到时**兜底旧 `.rules-version`**（未迁移的老工作区行为不变）。
+- 写：`config.json.tmp` + rename 原子替换；`patch` 只收三开关（布尔校验）并保留未知键/版本；**文件坏或非本格式 → 拒绝写**（不覆盖用户数据）。
+- `migrate(root, {seed})`：建档 + 迁移（幂等）—— 无文件则写 `{schema:1}` + seed 里显式给过的旧全局值 + 旧标记值；**写后回读校验通过才删**旧 `.rules-version`；非本格式文件一概不碰（报 error）。调用点：`ensureMemoryRootForCwd`，**必须在 syncRulesVersion 之前**（否则旧版本值这一轮看不到）。
+- 保护：config.json 对 MC 模式 AI **可读不可写**（见 §15）。
+
+## 15. `src/protected.mjs` —— 受保护文件（可读不可写）
+
+> 用户 2026-10-03 定：RULES.md / AGENTS.md（老名）/ config.json 对 MC 模式 AI **只读**。统一收编前身的散落判定：`agentsmd.mjs:isAgentsMdPath`（工具参数 JSON 全文匹配，已删）、`memory.mjs` 的根级文件名封锁。
+
+- `PROTECTED_FILES / isProtectedName`（根级、大小写不敏感）；`isProtectedPathArg(raw)`（guard 用：裸名 或 含 `.whale-craft`/`whale_craft` 段的路径；嵌套记忆文件如 `_global/config.json` 不算）。
+- `WRITE_FILE_TOOLS=/^(write|edit)$/`、`MEMORY_WRITE_ACTIONS=append/write/delete/put`（**现无消费方**：guard 侧随 `mc_kit_memory` 于 2026-10-07 移除，保留供将来写类工具复用）；`rejectionText()` / `protectedWriteError(rel)` 统一文案。
+- `CREDENTIAL_PATH_RE`（`\.credentials`/`credentials.yaml`/`.dsh`）与 `SECRETS_DIR_RE`（`secrets/`）：凭据相关路径判定，**guard 与 `mc_kit_fs`（src/fsops.mjs）共用一份**（2026-10-08 从 guard 的两个内联正则提取）。
+- guard（index.js）对文件工具用它 + **解析到记忆根后正好是该文件**的二次判定（绝对路径不一定含 `.whale-craft` 段也照样判定）；写入路径以 memory.mjs 的 `target.protected` 为兜底。
+
+## 15b. `src/fsops.mjs` —— `mc_kit_fs` 的文件系统操作（2026-10-08）
+
+> 补宿主没有的"删文件/删目录、复制/移动（含二进制）、建目录"。**纯函数、只吃路径**（沙箱根 `root` + 基准 `base`），便于自检单测。
+
+- `resolveTarget(root, base, raw)`：绝对路径照用、相对路径按 `base`（工作区根）解析；前缀包含校验（**Windows 大小写不敏感**）+ **父链 realpath 复查**（防 `root/link -> 外界` 这类越界符号链接）；末尾 `/.` 拒绝。
+- `expand(root, base, raw)`：末尾 `/*` → 该目录下**直接**子项（非深层 glob；`*` 只能在末尾，否则报错）；否则单目标。
+- `hasTrailingSep / hasStar / pathExists / isDir / samePath / isInside / ensureParentDir`：给工具态做"预检"用的小判定（`to` 是否以分隔符结尾、含 `*`、目标是否已存在/是目录、源目标是否相同/嵌套）。
+- `copyEntry / moveEntry / removeEntry / makeDir`：`cpSync{recursive, dereference:false, verbatimSymlinks:true}`（**保留符号链接、不跟随**）；move 先 `renameSync`、跨盘（EXDEV）退回复制+删除 + **自动建目标父目录**；delete 走 `lstat`（链接只 `unlinkSync` 本身）。
+- `forbiddenReason(root, abs)` / `rootReason(abs, roots)`：受保护文件（**根级** RULES.md/AGENTS.md/config.json）、凭据路径、沙箱根/工作区根**本身** → 拒；嵌套的 `_global/config.json` 不误伤。
+- **失败在动手前停止**：所有预检由 index.js 的 `mc_kit_fs.execute` 做完全部 plan 校验才执行（用户 2026-10-08："任何失败的操作都应在动手前停止，不可有副作用"）。
+- **错误一律中文**：本模块把系统错误码译成人话（`ENOENT:不存在`…），**不透出 Node/Windows 本地化原文**。
+- **双层防线**：工具态（本模块，权威）+ guard（index.js ③′，MC 模式第二道锁，沙箱=记忆根，路径比较同样大小写不敏感）。
+
+## 15c. `src/webfetch.mjs` —— `mc_kit_web_fetch` 的渲染（2026-10-08）
+
+> 补宿主 `web_fetch`（MC 模式被关掉）。**本模块不碰网络**：网络全在 `src/webget.mjs`（见 §15d），本模块只做"结果 → 模型可见文本"。
+
+- `EXTERNAL_WEB_CONTENT_NOTICE` / `TRUNCATION_FOOTER` / `WEB_FETCH_MAX_OUTPUT_CHARS=200000`：**逐字照抄**宿主 `@deepseek-ai/dsh-tool-web`（尾注含 `\n\n` 共 78 字符，宿主按 78 硬编码，这里按长度算）。
+- `renderFetchText(result, maxChars)`：输出形态与宿主一致 —— `Fetched <url> (HTTP <status>)` + 空行 + 反注入声明 + 空行 + 正文（+ 截断尾注）。截断语义也照抄：正文先按上限切一刀（`sourceTruncated`），整串仍超上限则**优先保住尾部那句"换个更具体的 URL"**（上限 < 尾注长度时退化成直接切）。
+- `htmlToMarkdown(html)`：**轻量、无依赖、单遍正则**（不用 turndown）——标题 `#`、列表 `- `、链接 `[t](u)`、图片 `![a](u)`、块级标签/`<br>`→换行；`script/style/noscript/svg/iframe/textarea/head/title` 连内容整段丢（不把脚本喂给模型）；`decodeEntities` 解命名/十进制/十六进制实体；最后收敛空白。⚠️ **有意与宿主不同的一处**：复杂嵌套/表格不如 turndown 保真（用户 2026-10-08 定的取舍：不为此引 turndown —— CJS 依赖树在宿主编译器上踩过 `failed to import`）。
+- 自检：`hostAllowed`（在 `config.mjs`）与渲染的纯函数单测在 selfcheck「网页抓取」段（16 例域名匹配 + HTML 转换 + 首行/声明/截断/上限 + 错误翻译）。
+
+## 15d. `src/webget.mjs` —— `mc_kit_web_fetch` 的**唯一出网口**（2026-10-08）
+
+> 2026-10-08 用户定："**全改成自己的可控逻辑，宿主的强关联就不要了**" —— 文本与图片都走这里，**不再经宿主 `ctx.web`**。
+> 换来：一次请求（按真实 Content-Type 判型）、不依赖宿主 `web` 服务、类型判定精确；代价：charset / 解压 / 分类 / 上限都自己扛，且**没有代理支持**（宿主 provider 有 `proxyRouteFor`）。
+> 安全：防 SSRF 全在这里。**不依赖** `ipaddr.js`（宿主包），IP 判定自己实现。
+
+- `isPublicIp(addr)`：IPv4 全段（0/8、10/8、100.64/10、127/8、169.254/16、172.16/12、192.168/16、192.0.0/24、192.0.2/24、192.88.99/24、198.18/15、198.51.100/24、203.0.113/24、≥224 全拒）+ IPv6（**只放行 `2000::/3`**；IPv4-mapped / NAT64 `64:ff9b::/96` / 6to4 `2002::/16` 三种按**内嵌 IPv4 复核**；Teredo `2001:0::/32`、`2001:db8::/32`、`3fff::/20`、`64:ff9b:1::/48` 一律拒）。**比宿主更严**。
+- `classifyContentType(ct)` → `{kind:'html'|'text'|'image', format?, mediaType}` / `null`：`html` = `text/html` / `application/xhtml+xml`；`text` = 其余 `text/*` + JSON/XML/`*+json`/`*+xml`（含 `image/svg+xml`）；`image` = **只有内置四种**（`WEB_IMAGE_FORMATS` = png/jpeg/gif/webp = 宿主附件服务认的 `mediaTypes`）；**其余一律 null ⇒ 不支持**（用户 2026-10-08：「只有内置的格式和未知的格式」，不区分"是图片但没内置"与"根本不是图片"）。判定在**读 body 之前**做。
+- `contentTypeAllowed(kind, {html,text,image})`：三个开关的**精确**判定（不再像走宿主时只能粗到两档）。
+- `charsetOf(ct)` / `decodeBodyText(bytes, charset)`：按声明 charset 解码（`TextDecoder`，默认 utf-8），压到 `WEB_GET_MAX_BODY_CHARS`(100000) 并标记 truncate；**不认识的 charset 直接报错**（宁可说清，不吐乱码）。
+- `fetchUrl(url, opts)`：自己解析 DNS → **每个地址都必须公网** → 地址**钉死**（`lookup` 只回这份名单，防 DNS rebinding）→ `http(s).request`（不带 cookie / 凭据；不声明 `accept-encoding`）→ 只跟**同源**跳转 ≤5 → 限大小与 30s 超时（接 `AbortSignal`）→ 判型 → 读 body（`gzip`/`deflate`/`br` 自动解压，别的 `content-encoding` 明确报错）→ 返回 `{url, statusCode, contentType, charset, kind, format, mediaType, body, truncatedByBytes}`。
+  - 上限：文本 5MB（`WEB_GET_MAX_BYTES`）/ 正文 10 万字符；图片 20MB。**声明了 `Content-Length` 且超上限 → 报错**（同宿主 provider）；**边下边超 → 文本截断、图片报错**（截一半的图是坏图）。
+  - 🔴 **踩过的坑（真机卡死，自检的本地服务用例抓到）**：`requestOnce` 里"响应到达"只能有**一个**处理点（回调里判完 `Content-Length` 再 `resolve`）。曾经把 `resolve` 当请求回调、**另**挂 `req.on('response')` 判长度 —— 超限时 `destroy()` 掉的正是**已经 resolve 出去的那个响应**，随后读 body 的 await **永不 settle**。`readBody` 另有 `close` 兜底（流被提前关掉也必须 settle）。
+- 测试缝（照宿主同款）：`lookup` / `assertPublic` 可注入 —— selfcheck 用它对着**本机 http 服务**跑通链路（本机是私网地址，正常路径会拒，注入后才走得到）。
+
+## 15e. `src/craft.mjs` —— 合成 / 冶炼 / 工作台（2026-11-23）
+
+> 用户要求：「**可以加上使用工作台进行物品合成**」。本模块把 MC 的合成链做全，**纯逻辑、不依赖 DSH**
+> （`bot` 与注入的最小能力集 `api` 都从外部传入 ⇒ 可以脱离 mineflayer 单测）。
+> 冶炼的**副作用部分**（开窗/放料/取产物）留在 `core.mjs`（要 `#t()` 私有的超时包装），本模块只管燃料挑选。
+
+**导出**：`craftItem`（主流程）、`craftPlan`（只算账）、`listRecipes`、`findCraftingTable`、`countItem`、`inventoryCounts`、`itemOf`、`nameOfId`、`recipeCost`、`recipeResult`、`recipeNeedsTable`、`pickFuel`、`FUELS`、`CRAFTING_TABLE`、`FURNACE_NAMES`、`MAX_CRAFT_DEPTH`、`MAX_CRAFT_ITERATIONS`、default。
+
+- **三种台子来源**（`ensureTable`，按优先级）：① 附近已有 `crafting_table`（≤32 格，**逐个试**）；② 背包有 → 放下（`placeAndWait`）；③ 连台子都没有 → **先合一个**（4 木板，2×2）。2×2 能做的配方**不乱放台子**。
+- 🔴 **`ensureTable` 的关键校验**：找到的台子必须**真够得着**（≤4.5 格）才返回。走不到的台子传进 `bot.craft()` 会死等 `windowOpen` **20 秒**再抛错。走不到就换下一个候选，全不行就当作没台子（自己放/造）。
+- 🔴 **`placeAndWait`**：`placeBlock` 返回 ok 只代表本地发了包；紧接着 craft 会**静默没产出**（真机偶发 1/4）。放完**轮询确认方块真进世界**（≤3 秒，15×200ms）。
+- 🔴 **配方打分 `scoreRecipe` / `rankRecipes`**：木棍有 **12 条**配方（oak/spruce/birch/cherry/…），"取第一条"会挑中 `cherry_planks` ⇒ 报"cherry_log 差 1"。打分按 `blocked`（递归到底补不动的种类）→ `short`（缺几种）→ `cells`（要摆几格）。
+- 🔴 **`reachable(bot, name, need, depth, seen)`**：递归可达性。"有配方"**不等于**"补得动"（`cherry_planks` 有配方，但它要的 `cherry_log` 背包没有也没配方）——必须一路问到**最终底层原料**是否真有。
+- 🔴 **`satisfy` 轮转补料**：木镐 = `3 木板 + 2 木棍`，而木棍耗木板；挨个补会"补木棍吃掉刚补的木板"⇒ 报"oak_planks 差 1"。所以**每补一项就重算缺口**，最多 8 轮，每轮至少一项净增长。
+- 🔴 **`recipesAll(id, meta, table)` 的第三参**：传 `null` 会把**所有 3×3 配方过滤掉**（木镐直接"没有已知配方"）；传 `true` 才是"把需要台子的也列出来"（`node_modules/mineflayer/lib/plugins/craft.js:217`）。
+- **失败兜底**：台子"看着有、其实用不了"时（windowOpen 超时 / 静默没产出），**拆掉坏台子 → 放新的 → 重试一次**。
+- **缺口报告**：补不动时 `err.gaps = [{name, need, have, missing}]`，模型据此先去 `mc_dig` / `mc_collect`。
+- **成功判据**：合成后**复核背包真实数量**（`have`），不报假成功。
+- **`pickFuel(bot, needBurnTicks)`**：按 `FUELS` 表挑（煤/木炭 8、木板/原木 1.5、木棍 0.5、煤块 80、岩浆桶 100…），返回 `{name, count, burns, enough}`。
+
+## 15f. `src/plugins.mjs` —— 外部 mineflayer 插件集成层（2026-11-23）
+
+> 用户要求：「**比如 mineflayer-auto-eat 和 mineflayer-tool 同时确保能用，把 mineflayer 等插件的功能集成在里面**」。
+> 本模块是那件事的唯一入口：**五个插件全部可选**，装了就挂、没装就降级，**永不抛错**。
+
+**导出**：`PLUGIN_SPECS`、`resolvePluginPath`、`pluginAvailability`、`attachPlugins`、`pluginStatus`、`hasPlugin`、`autoEatControl`、`AUTO_EAT_OPTS`。
+
+| key | 包 | 用途 | 没装时降级到 |
+| --- | --- | --- | --- |
+| `pathfinder` | `mineflayer-pathfinder` | 真寻路（`gotoPoint` / `mc_collect` / `mc_follow` / 走台子） | 内置 `walkTo`（`mode:'pathfinder→walk'`） |
+| `tool` | `mineflayer-tool` | `mc_dig` 用 `equipForBlock` 挑最合适工具 | `harvestTools` 里最好的那把 |
+| `autoeat` | `mineflayer-auto-eat`（**ESM**） | 自动进食（`mc_plugins` enable/disable/opts/eat） | 相关 action 报"插件没加载" |
+| `collectblock` | `mineflayer-collectblock` | `mc_collect` 走过去收 | goto + `breakBlock` |
+| `pvp` | `mineflayer-pvp` | `mc_fight` 追打 | 单次 `attack` |
+
+- **`attachPlugins(bot, {only, log})`**：幂等、按依赖排序、逐项 try/catch。ESM 包（auto-eat）`require` 失败时**自动退回动态 `import()`**。`report = {loaded, skipped, failed}`。
+- **解析锚点**：`createRequire(resolve('mineflayer'))` —— 必须让插件与 mineflayer **共用同一份模块实例**（`loadPlugin` 按函数身份去重，两份实例会重复注入）。
+- **挂载时机**（`core.mjs` 的 `attachExternalPlugins`）：`connect()` 里 **spawn 之后**，fire-and-forget 不阻塞进服。不放 `createBot({plugins})` 的三个理由：① auto-eat 是 ESM，`plugins:` 要同步函数；② 要"装不上就跳过"的容错，`plugins:` 里抛错会炸建连；③ spawn 后 `inject_allowed` 早过了，`loadPlugin` 立即生效。
+- **`autoEatControl(bot, {action, opts})`**：`enable`/`disable`/`status`/`opts`/`eat`，未知 action 明确报错并列可用项。
+- **`AUTO_EAT_OPTS`**：默认 `{eatingTimeout:3000, minHealth:14, minHunger:15, returnToLastItem:true, offhand:false, priority:'foodPoints', bannedFood:[…], strictErrors:true}`。
+
+## 16. `src/tool-def.mjs` —— 工具定义（宿主优先 + 内置兜底）
+
+> 2026-10-04（GitHub issue #5）：`index.js` 顶层曾**静态** import 两个 optional peer（`@deepseek-ai/dsh-tools` / `schemastery`）⇒ 干净安装 / 官方 dsh-desktop 上模块**链接期**失败，宿主只报一句 `failed to import`。本模块沿用 `user-message.mjs` 的同款模式（宿主优先、内置兜底、`kind()` 诊断）。
+
+- `defineTool(options)`：`toolDefKind()==='host'` 时用宿主的 defineTool（本机 CLI/源码安装行为完全不变）；解析不到用 `builtinDefineTool`。
+- 内置 compiler：`parameters`（属性表 DSL）→ JSON Schema，**key 顺序与宿主逐字一致**（标量 `{type,注解,enum,const}`；object `{type,注解,additionalProperties,properties(声明了才有),required(非空才有)}`；`type:'json'` → 仅注解无 type；属性 `required:true` 收进**父级** required）；`timeoutMs` 透传；oneOf / 未声明 additionalProperties 的 object / presenter 类选项 → **明确抛错**（防静默走样，自检会当场红）。
+- 内置 validator：宿主 `validateJsonSchemaValue` 的子集，违规文案/路径逐字对齐（`"arguments" must be an object` 等）；违规抛 `BuiltinToolArgsError`（name=`ToolArgsError`、code=`INVALID_ARGS`）。⚠️ 它不是宿主 `HarnessError` 子类（拿不到宿主类）——宿主显示层会退化成通用错误，文案保持一致（任务书认可的退化）。
+- 自检：段 A 直接与宿主编译器对拍；段 B 用 `tools/no-host-init.mjs`（module.register 解析钩子）屏蔽两个包，子进程**整树自检** + 41 个工具注册形状**逐字比对**。CI 另有 `tools/check-standalone-import.mjs`（干净安装 import 回归；改回静态 import 必红）。
+
+## 16b. `src/resolver-shim.mjs` —— 宿主解析器兜底（绕过 DSH rc.2 的 bug；2026-10-06）
+
+> **纯副作用模块**（无导出）：`index.js` 的**第一条 import**，必须排在 `./src/core.mjs`（→ mineflayer）之前（ESM 按 import 顺序求值）。事故档案见 [history.md](history.md) F14。
+
+- **症状**：从 npm/registry 安装（**非 link**）的插件一律 `failed to import`、整个不激活；link 调试正常。
+- **根因**：宿主 `dsh-app-boot` 的 `ResolutionRouter.routeScoped` 对 **link 层提前 `routeLinked` 返回**、**非 link 层**才走 `for (const p of createRequire(parent).resolve.paths(name))`；`readable-stream@4` 的 `require('process/')`（尾部斜杠）使 `resolve.paths` 返回 **null** ⇒ `for...of null` 抛 `TypeError`。插件加载 mineflayer（依赖链含 readable-stream）时即炸。
+- **修法**：包一层 `Module._resolveFilename`——先原样调宿主那份；**只在它抛该特定 TypeError 时**兜底（去尾斜杠后是内置名 ⇒ 直接返回；否则退回 `_findPath`）。其余请求行为逐字不变。
+- ⚠️ 对宿主内部的 monkey-patch，属**临时手段**；DSH 修好后删除（history.md §4 待办有记）。
+
+## 17. 模块依赖与不变式
+
+- 模块间 import：`config.mjs → express.mjs`（`EXPRESS_MODES/normalizeExpressBase/resolveExpressMode`）；`agentsmd.mjs → wsconfig.mjs`（版本读写）；`memory.mjs → protected.mjs`（保护判定）；`webfetch.mjs` / `webget.mjs` **不依赖任何模块**（纯文本转换 / 自带公网抓取，index.js 组装）；`tool-def.mjs` 自解析宿主包（可缺省）；index.js 组装其余；`resolver-shim.mjs` 无导出、纯副作用（index.js 首条 import，必须早于其余全部）。
+- 记忆根定位（index.js `memoryRootFor`）：**就是** `<会话 cwd>/.whale-craft`；没有会话工作区 → `null`（无兜底目录、无 env/config 重定向 —— 2026-10-08 删掉旧的 `WHALE_CRAFT_MEMORY_DIR` 与 `config.memoryDir`）。
+- 跨模块不变式：① 记忆路径全过 `safePath`，受保护文件（RULES/AGENTS/config.json）**可读不可写**（写类方法拒绝）；② 凭据只进宿主凭据服务，`view()`/工具返回/HTTP 永不见；③ 发布区只服务 `.express/`，`.out/` 永不对外；④ LAN 只被动听；⑤ ping 永不 reject；⑥ 一切写给模型的注入都是"提示行"。
