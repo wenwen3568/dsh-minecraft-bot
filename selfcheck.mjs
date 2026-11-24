@@ -27,9 +27,9 @@ let checkWs
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const whaleTmp = mkdtempSync(join(tmpdir(), 'minecraft-bot-'))
-  process.env.MCBOT_DIR = whaleTmp                 // 全局配置（stateDir）的固定文件夹
-  checkWs = mkdtempSync(join(tmpdir(), 'whale-ws-'))     // 测试用会话工作区
+  const isoTmp = mkdtempSync(join(tmpdir(), 'minecraft-bot-'))
+  process.env.MCBOT_DIR = isoTmp                 // 全局配置（stateDir）的固定文件夹
+  checkWs = mkdtempSync(join(tmpdir(), 'mcb-ws-'))     // 测试用会话工作区
 }
 
 const tools = new Map()
@@ -47,9 +47,9 @@ const { mkdtempSync: mkTop, existsSync: exTop, readFileSync: rfTop } = await imp
 const { tmpdir: tdTop } = await import('node:os')
 const { join: jnTop } = await import('node:path')
 /** 假"用户可写 preset 根"：自动建 preset 时把目录 / preset.yml 真写在这里，好断言内容 */
-const presetUserRoot = mkTop(jnTop(tdTop(), 'whale-presets-'))
+const presetUserRoot = mkTop(jnTop(tdTop(), 'mcb-presets-'))
 /** 假"官方随包 preset 根"：`list()` 要给出**真实存在**的组成文件路径（否则读不到组成、hash 只能是 null） */
-const shippedRoot = mkTop(jnTop(tdTop(), 'whale-shipped-'))
+const shippedRoot = mkTop(jnTop(tdTop(), 'mcb-shipped-'))
 const SHIPPED_DESC = {
   minimal: '仅提供持久 shell 的单工具编码 Agent。',
   standard: '功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。',
@@ -492,7 +492,7 @@ console.log('\n--- 看门狗 v2 ---')
       const { mkdtempSync } = await import('node:fs')
       const { tmpdir } = await import('node:os')
       const { join } = await import('node:path')
-      const tmpDir = mkdtempSync(join(tmpdir(), 'whale-offline-'))
+      const tmpDir = mkdtempSync(join(tmpdir(), 'mcb-offline-'))
       const srv = createServer((sock) => { sock.destroy() })      // 接受即掐断
       await new Promise((r) => srv.listen(0, '127.0.0.1', r))
       const port = srv.address().port
@@ -817,8 +817,8 @@ console.log('\n--- 强制停止：UI 路径的真实顺序（停LLM → 退游�
   // ── 「MC设置」HTTP 接口（锁住 E2E 抓到的真 bug：**DELETE 也带 body，必须读**）──
   // 🔴 2026-09-16：这组接口现在**必须有带工作区的 sessionId**（用户："没有选中工作区就拒绝设置"）。
   //    造一个带工作区的会话，下面所有设置调用都自动带上它。
-  const apiWs = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'whale-apiws-'))
-  const apiWs2 = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'whale-apiws2-'))
+  const apiWs = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mcb-apiws-'))
+  const apiWs2 = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mcb-apiws2-'))
   const apiAgent = { id: 'sess-API', session: { header: { cwd: apiWs } } }
   const apiAgent2 = { id: 'sess-API2', session: { header: { cwd: apiWs2 } } }
   agents2 = { get: (id) => (id === 'sess-API' ? apiAgent : id === 'sess-API2' ? apiAgent2 : undefined) }   // ⚠️ 这是**第二套** ctx 的服务（route2 属于它）
@@ -958,7 +958,7 @@ console.log('\n--- 发布区：目录即白名单 / 不用 token / 必须防穿�
   const { EventEmitter } = await import('node:events')
 
   console.log(`  ${E.EXPRESS_DIR === '.express' && E.OUT_DIR === '.out' ? '✅' : '❌'} 目录名：发布区 .express / 默认输出 .out（都以点开头）`)
-  const cwd = join(mkdtempSync(join(tmpdir(), 'whale-express-')), 'myproj')
+  const cwd = join(mkdtempSync(join(tmpdir(), 'mcb-express-')), 'myproj')
   mkdirSync(cwd, { recursive: true })        // 工作区目录本身得存在（闸门会 statSync 它）
   // 记忆根 = <会话工作区>/.minecraft-bot（2026-10-08 起无 env 重定向）→ 发布区跟着它
   const memRoot = join(cwd, '.minecraft-bot')
@@ -1400,7 +1400,7 @@ console.log('\n--- 文件系统操作（mc_kit_fs）---')
   const { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, symlinkSync, lstatSync, readdirSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const base = mkdtempSync(join(tmpdir(), 'whale-fs-'))
+  const base = mkdtempSync(join(tmpdir(), 'mcb-fs-'))
   const root = join(base, 'sandbox')
   mkdirSync(root, { recursive: true })
   const R = (p) => join(root, p)
@@ -1432,7 +1432,7 @@ console.log('\n--- 文件系统操作（mc_kit_fs）---')
   console.log(`  ${!existsSync(R('z.txt')) ? '✅' : '❌'} delete 单文件`)
 
   // 符号链接：需要系统创建权限（Windows 非开发者模式会 EPERM）→ 拿不到就跳过该组
-  const outside = mkdtempSync(join(tmpdir(), 'whale-fs-out-'))
+  const outside = mkdtempSync(join(tmpdir(), 'mcb-fs-out-'))
   writeFileSync(join(outside, 'target.txt'), 'target\n')
   let canLink = true
   try { symlinkSync(join(outside, 'target.txt'), R('link.txt')) } catch { canLink = false }
@@ -1543,7 +1543,7 @@ console.log('\n--- 记忆能力（.minecraft-bot / README 索引 / 任意格式�
   const { mkdtempSync, readFileSync, existsSync, readdirSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const root = join(mkdtempSync(join(tmpdir(), 'whale-mem-')), '.minecraft-bot')
+  const root = join(mkdtempSync(join(tmpdir(), 'mcb-mem-')), '.minecraft-bot')
   const mem = new MemoryStore(root)
 
   console.log(`  ${mem.list().length === 0 ? '✅' : '❌'} 新库为空（README 不算记忆条目）`)
@@ -1810,7 +1810,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
 
     /** 起第三棵树：预置一份手写 preset（root 里只有它），返回 apply 后的那套东西 */
     const bootWithHandwritten = async () => {
-      const root = fs.mkdtempSync(jn3(td3(), 'whale-handwritten-'))
+      const root = fs.mkdtempSync(jn3(td3(), 'mcb-handwritten-'))
       const dir = jn3(root, 'minecraft')
       fs.mkdirSync(dir, { recursive: true })
       const compPath = jn3(dir, 'agent.cordis.yml')
@@ -2031,7 +2031,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const cfg = new PluginConfig(mkdtempSync(join(tmpdir(), 'whale-cfg-')))
+  const cfg = new PluginConfig(mkdtempSync(join(tmpdir(), 'mcb-cfg-')))
 
   console.log(`  ${cfg.commandAllowed('tp') && !cfg.commandAllowed('op') ? '✅' : '❌'} 默认白名单：放行 tp、拒绝 op`)
   cfg.set('commandWhitelist', ['give', '/^ti/'])
@@ -2084,7 +2084,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
       const { tmpdir } = await import('node:os')
       const base = mkdtempSync(jn2(tmpdir(), 'mcb-mig-'))
       const newDir = jn2(base, 'dsh_minecraft_bot')
-      const legacyDir = jn2(base, 'whale_craft')
+      const legacyDir = jn2(base, 'whale_craft')   // 必须是真老名，否则测的不是迁移
       mk2(legacyDir)
       wr2(jn2(legacyDir, 'accounts.json'), '{"accounts":["old"]}')
       const mig = migrateLegacyStateDir(newDir)
@@ -2429,9 +2429,9 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
     events: [],
     snapshotEvents() { return this.events },
   })
-  const mcAgent = { id: 'sess-MC2', session: mkSession('whale-mc-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox(), steer: () => { throw new Error('不该走 steer！') } }
-  const plainAgent = { id: 'sess-P2', session: mkSession('whale-pl-'), ctx: makeAgentCtx('standard'), inbox: mkInbox() }
-  const plusAgent = { id: 'sess-MCP2', session: mkSession('whale-mcp-'), ctx: makeAgentCtx('minecraft-plus'), inbox: mkInbox() }
+  const mcAgent = { id: 'sess-MC2', session: mkSession('mcb-mc-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox(), steer: () => { throw new Error('不该走 steer！') } }
+  const plainAgent = { id: 'sess-P2', session: mkSession('mcb-pl-'), ctx: makeAgentCtx('standard'), inbox: mkInbox() }
+  const plusAgent = { id: 'sess-MCP2', session: mkSession('mcb-mcp-'), ctx: makeAgentCtx('minecraft-plus'), inbox: mkInbox() }
   fire('agent/created', mcAgent)
   fire('agent/created', plainAgent)
   fire('agent/created', plusAgent)
@@ -2502,7 +2502,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
   {
     const before = restrictCalls.length
     await tools.get('mc_admin_config').execute({ action: 'set', path: 'allowWebSearch', value: false }, A)
-    const offAgent = { id: 'sess-MC-NOWEB', session: mkSession('whale-mcnoweb-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
+    const offAgent = { id: 'sess-MC-NOWEB', session: mkSession('mcb-mcnoweb-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
     fire('agent/created', offAgent)
     const offAllow = restrictCalls.slice(before).find((c) => c.preset === 'minecraft')?.f?.allow ?? null
     console.log(`  ${Array.isArray(offAllow) && !offAllow.includes('web_search') ? '✅' : '❌'} 🔴 开关关掉后新建的 MC 会话白名单**不含** web_search${offAllow ? `（${offAllow.length} 个）` : ''}`)
@@ -2511,7 +2511,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
     const plainWeb = callGuard({ name: 'web_search', arguments: {}, agent: { id: 'sess-P3', ctx: makeAgentCtx('standard') } })
     console.log(`  ${plainWeb === undefined ? '✅' : '❌'} 联网搜索开关**不误伤普通会话**（标准模式的 web_search 照常）`)
     // MC+ 不受本开关影响（不套白名单 ⇒ 不经过这条 allow 列表）
-    const plusOffAgent = { id: 'sess-MCP-NOWEB', session: mkSession('whale-mcpnoweb-'), ctx: makeAgentCtx('minecraft-plus'), inbox: mkInbox() }
+    const plusOffAgent = { id: 'sess-MCP-NOWEB', session: mkSession('mcb-mcpnoweb-'), ctx: makeAgentCtx('minecraft-plus'), inbox: mkInbox() }
     fire('agent/created', plusOffAgent)
     console.log(`  ${restrictCalls.slice(before).every((c) => !(c.preset === 'minecraft-plus' && Array.isArray(c.f?.allow))) ? '✅' : '❌'} 🔴 开关关掉后 MC+ 仍**不套白名单**（web_search 照常可见）`)
     await tools.get('mc_admin_config').execute({ action: 'unset', path: 'allowWebSearch' }, A)
@@ -2521,7 +2521,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
   {
     const before = restrictCalls.length
     await tools.get('mc_admin_config').execute({ action: 'set', path: 'webFetchEnabled', value: true }, A)
-    const onAgent = { id: 'sess-MC-FETCH', session: mkSession('whale-mcfetch-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
+    const onAgent = { id: 'sess-MC-FETCH', session: mkSession('mcb-mcfetch-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
     fire('agent/created', onAgent)
     const onAllow = restrictCalls.slice(before).find((c) => c.preset === 'minecraft')?.f?.allow ?? null
     console.log(`  ${Array.isArray(onAllow) && onAllow.includes('mc_kit_web_fetch') ? '✅' : '❌'} 🔴 抓取开关打开后新建的 MC 会话白名单**含** mc_kit_web_fetch`)
@@ -2569,7 +2569,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
    *    → "设置页显示正常、AI 却什么都没收到"。现在照宿主的做法投**插件提示行**。 */
   const lateAgent = {
     id: 'sess-LATE',
-    session: mkSession('whale-late-'),
+    session: mkSession('mcb-late-'),
     ctx: makeAgentCtx(undefined),
     inbox: mkInbox(),
   }
@@ -2627,7 +2627,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
 
     /* 已经**投递过**的（进了对话历史、摘不掉）在**重启后**也不能重投：
      * 台账是进程内的，宿主一重启就没了 —— 靠**回读会话日志**认出来。（老代码在这里会重复注入。） */
-    const deliverAgent = { id: 'sess-DELIVERED', session: mkSession('whale-dlv-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
+    const deliverAgent = { id: 'sess-DELIVERED', session: mkSession('mcb-dlv-'), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
     fakeCtx.agents = { get: (id) => (id === 'sess-DELIVERED' ? deliverAgent : id === 'sess-LATE' ? lateAgent : undefined) }
     fire('agent/created', deliverAgent)
     const firstRound = (await preStepMessages(deliverAgent, 1, 1)).filter((m) => m?.source?.kind === 'plugin:dsh_minecraft_bot')
@@ -2699,7 +2699,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
     const { mkdtempSync, existsSync, readFileSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const ws = mkdtempSync(join(tmpdir(), 'whale-ws-'))
+    const ws = mkdtempSync(join(tmpdir(), 'mcb-ws-'))
     const seedAgent = { id: 'sess-SEED', session: mkSession2(ws), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
     fire('agent/created', seedAgent)
     const wsRoot = join(ws, '.minecraft-bot')
@@ -2732,7 +2732,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
     //    版本=当前（from==to）时不动 RULES.md（版本不同要替换的语义由上面的单元用例覆盖）
     {
       const { mkdirSync, renameSync } = await import('node:fs')
-      const wsMig = mkdtempSync(join(tmpdir(), 'whale-wsmig-'))
+      const wsMig = mkdtempSync(join(tmpdir(), 'mcb-wsmig-'))
       mkdirSync(join(wsMig, '.minecraft-bot'), { recursive: true })
       writeFileSync(join(wsMig, '.minecraft-bot', 'RULES.md'), '# 老工作区自定义准则\n', 'utf8')
       const curVer = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
@@ -2749,7 +2749,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
       const hadState = existsSync(stateCfg)
       if (hadState) renameSync(stateCfg, stateBak)      // 制造"stateDir 还没有全局配置"的条件（遗留判定才可能触发）
       try {
-        const wsNew = mkdtempSync(join(tmpdir(), 'whale-mignew-'))
+        const wsNew = mkdtempSync(join(tmpdir(), 'mcb-mignew-'))
         mkdirSync(join(wsNew, '.minecraft-bot'), { recursive: true })
         writeFileSync(join(wsNew, '.minecraft-bot', 'config.json'), '{"schema":1,"rulesVersion":"9.0.0"}\n', 'utf8')
         const newAgent = { id: 'sess-MIGNEW', session: mkSession2(wsNew), ctx: makeAgentCtx('minecraft'), inbox: mkInbox() }
@@ -2764,7 +2764,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
 
     // 🔴 用户 2026-09-16 改的**时机**：不是"启动时对每个会话建"，而是
     //    ① 首次发起 MC 模式会话 ② 点开「MC设置」——**别的时候（比如普通会话）不许建**。
-    const ws2 = mkdtempSync(join(tmpdir(), 'whale-ws2-'))
+    const ws2 = mkdtempSync(join(tmpdir(), 'mcb-ws2-'))
     const plainWithWs = { id: 'sess-PLAINWS', session: { header: { cwd: ws2 } }, ctx: makeAgentCtx('standard') }
     fire('agent/created', plainWithWs)
     fire('agent/session-start', plainWithWs)
@@ -2850,7 +2850,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
   console.log(`  ${noWsCfg.json?.ok === true && noWsCfg.json?.hasWorkspace === false ? '✅' : '❌'} 会话没工作区 → 无工作区模式（放行；工作区键为 null）`)
 
   // 反面：有工作区 → 放行，并且**在这个时机**把 `.minecraft-bot/` 备好（"点开设置即建"）
-  const ws3 = (await import('node:fs')).mkdtempSync(join((await import('node:os')).tmpdir(), 'whale-ws3-'))
+  const ws3 = (await import('node:fs')).mkdtempSync(join((await import('node:os')).tmpdir(), 'mcb-ws3-'))
   const wsAgent = { id: 'sess-WSOK', session: { header: { cwd: ws3 } }, ctx: makeAgentCtx('minecraft') }
   fakeCtx.agents = { get: (id) => (id === 'sess-WSOK' ? wsAgent : id === 'sess-NOWS' ? noWsAgent2 : undefined) }
   const okCfg = await callMc2('GET', '/api/mc/config?sessionId=sess-WSOK')
@@ -2860,7 +2860,7 @@ console.log('\n--- 全局配置 / mc_admin_config / MC 模式隔离 ---')
 
   // 🔴 2026-09-16 真机反馈："新对话还没开始（服务端还没这个会话），可工作区明明选了"——
   //    所以允许客户端**直接报工作区**（只认绝对路径 + 真实存在的目录）。
-  const hintWs = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'whale-hint-'))
+  const hintWs = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mcb-hint-'))
   const hintOk = await callMc2('GET', '/api/mc/config?sessionId=sess-UNKNOWN&cwd=' + encodeURIComponent(hintWs))
   console.log(`  ${hintOk.json?.ok === true ? '✅' : '❌'} 新对话页：会话还没落盘、但客户端报了对的工作区 → **放行**`)
   const hintAbs = await callMc2('GET', '/api/mc/config?sessionId=sess-UNKNOWN&cwd=' + encodeURIComponent('relative/dir'))
@@ -2891,7 +2891,7 @@ console.log('\n--- MC账户：账户库 / 凭据隔离 / 工具 ---')
     modifyRecord: async (key, fn) => { const r = await fn(recs.get(key)); recs.set(key, r); return r },
     deleteRecord: async (key) => { recs.delete(key) },
   }
-  const store = new AccountStore({ dir: mkdtempSync(join(tmpdir(), 'whale-acc-')), credentials: fakeCred })
+  const store = new AccountStore({ dir: mkdtempSync(join(tmpdir(), 'mcb-acc-')), credentials: fakeCred })
   store.ensureDefaults()
   await store.refreshCredentialIndex()
 
@@ -2953,7 +2953,7 @@ console.log('\n--- MC账户：账户库 / 凭据隔离 / 工具 ---')
   console.log(`  ${/还有账户在用/.test(String(delUsed)) ? '✅' : '❌'} 被账户占用的服务器不许删：${String(delUsed).slice(0, 34)}`)
   console.log(`  ${!/p@ssw0rd|tok-1|ct-1/.test(viewJson) ? '✅' : '❌'} 🔴 公开视图里逐字查过：**没有**密码/token`)
   console.log(`  ${recs.has(`minecraft-bot/${acc2.innerID}`) ? '✅' : '❌'} 凭据落在宿主凭据服务（key = minecraft-bot/<innerID>）`)
-  const noCred = new AccountStore({ dir: mkdtempSync(join(tmpdir(), 'whale-acc2-')) })
+  const noCred = new AccountStore({ dir: mkdtempSync(join(tmpdir(), 'mcb-acc2-')) })
   noCred.ensureDefaults()
   const refuse = await noCred.setCredential(noCred.list()[0].innerID, { password: 'x' }).catch((e) => e.message)
   console.log(`  ${/拒绝把密码写进工作区/.test(String(refuse)) ? '✅' : '❌'} 凭据服务不可用时**拒绝降级写明文**`)
@@ -3006,7 +3006,7 @@ console.log('\n--- 行事准则 RULES.md / 新开关 / 边界信息 ---')
     console.log(`  ${/第一时间回复/.test(DEFAULT_AGENTS_MD) ? '✅' : '❌'} 「聊天」有"第一时间回复用户"`)
   }
 
-  const dir = mkdtempSync(join(tmpdir(), 'whale-md-'))
+  const dir = mkdtempSync(join(tmpdir(), 'mcb-md-'))
   console.log(`  ${readAgentsMd(dir).source === 'default' ? '✅' : '❌'} 没有自定义文件时用默认`)
   writeAgentsMd(dir, '# 我的准则\n\n- 一句话')
   const custom = readAgentsMd(dir)
@@ -3018,7 +3018,7 @@ console.log('\n--- 行事准则 RULES.md / 新开关 / 边界信息 ---')
   const backDefault = readAgentsMd(dir)
   console.log(`  ${existsSyncMd(agentsMdPath(dir)) && backDefault.source === 'default' ? '✅' : '❌'} 「恢复默认」= 把默认写回文件（文件仍在，source 按内容判定）`)
   console.log(`  ${backDefault.text === DEFAULT_AGENTS_MD ? '✅' : '❌'} 恢复后的内容逐字等于内置默认（${backDefault.text.length} 字）`)
-  const emptyDir = mkdtempSync(join(tmpdir(), 'whale-md-none-'))
+  const emptyDir = mkdtempSync(join(tmpdir(), 'mcb-md-none-'))
   const noFile = readAgentsMd(emptyDir)
   console.log(`  ${noFile.source === 'default' && noFile.text.length > 100 ? '✅' : '❌'} 文件不存在时也返回默认**全文**（绝不返回空串 → 提示词不会因此消失）`)
   writeAgentsMd(dir, DEFAULT_AGENTS_MD)
@@ -3056,7 +3056,7 @@ console.log('\n--- 行事准则 RULES.md / 新开关 / 边界信息 ---')
     console.log(`  ${!isIt('E:/x/.minecraft-bot/README.md') && !isIt('E:/x/.minecraft-bot/my-notes.md') ? '✅' : '❌'} 不误伤 README.md / 别的记忆文件`)
 
     // 迁移：老文件在、新文件不在 → 内容搬过去 + 老文件改名备份
-    const d1 = mkTmp(jn(td(), 'whale-rules-mig1-'))
+    const d1 = mkTmp(jn(td(), 'mcb-rules-mig1-'))
     writeTmp(jn(d1, 'AGENTS.md'), '# 我自己写的准则\n\n- 一条\n', 'utf8')
     const m1 = migrateLegacyAgentsMd(d1)
     console.log(`  ${m1.migrated && ex(aPath(d1)) && rd(aPath(d1), 'utf8').includes('我自己写的准则') ? '✅' : '❌'} 迁移：老 AGENTS.md 的内容搬进 RULES.md`)
@@ -3064,7 +3064,7 @@ console.log('\n--- 行事准则 RULES.md / 新开关 / 边界信息 ---')
     console.log(`  ${migrateLegacyAgentsMd(d1).migrated === false ? '✅' : '❌'} 迁移是幂等的（第二次什么都不做）`)
 
     // 两个都在 → 以新文件为准，老文件照样备份改名
-    const d2 = mkTmp(jn(td(), 'whale-rules-mig2-'))
+    const d2 = mkTmp(jn(td(), 'mcb-rules-mig2-'))
     writeTmp(jn(d2, 'AGENTS.md'), '老内容\n', 'utf8')
     writeTmp(jn(d2, 'RULES.md'), '新内容\n', 'utf8')
     const m2 = migrateLegacyAgentsMd(d2)
@@ -3085,7 +3085,7 @@ console.log('\n--- 行事准则 RULES.md / 新开关 / 边界信息 ---')
     const { join } = await import('node:path')
     const { syncRulesVersion, agentsMdPath, DEFAULT_AGENTS_MD } = await import('./src/agentsmd.mjs')
     const { readRulesVersion, setRulesVersion, wsConfigPath } = await import('./src/wsconfig.mjs')
-    const mk = () => mkdtempSync(join(tmpdir(), 'whale-rules-ver-'))
+    const mk = () => mkdtempSync(join(tmpdir(), 'mcb-rules-ver-'))
     const rd = (d) => { try { return readFileSync(agentsMdPath(d), 'utf8') } catch { return '' } }
 
     // ① 没文件 → 建默认 + 记版本（版本落进 config.json）
