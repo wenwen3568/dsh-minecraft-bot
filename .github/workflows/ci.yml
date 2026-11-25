@@ -31,6 +31,26 @@ jobs:
           cache: npm
       - name: 装依赖（mineflayer 是插件的直接依赖，会被真拉下来）
         run: npm ci --no-audit --no-fund
+      - name: lock 与 package.json 必须同步
+        # 2026-11 真事：加了五个 optionalDependencies 却没重生成 lock，
+        # `npm ci` 直接 EUSAGE 失败，而报错只写 "Missing: xxx from lock file"，
+        # 看不出是"忘了跑 npm install"。这里先单独判定，给出明确指引。
+        run: |
+          set -euo pipefail
+          node -e "
+            const p = require('./package.json');
+            const l = require('./package-lock.json');
+            const want = { ...(p.dependencies||{}), ...(p.optionalDependencies||{}), ...(p.devDependencies||{}) };
+            const got = l.packages?.[''] ?? {};
+            const declared = { ...(got.dependencies||{}), ...(got.optionalDependencies||{}), ...(got.devDependencies||{}) };
+            const missing = Object.keys(want).filter(k => !declared[k]);
+            if (missing.length) {
+              console.error('::error::package-lock.json 与 package.json 不同步，缺少：' + missing.join(', '));
+              console.error('修法：在仓库根目录跑  npm install --package-lock-only  然后提交 package-lock.json');
+              process.exit(1);
+            }
+            console.log('lock 与 package.json 同步（' + Object.keys(want).length + ' 条声明）');
+          "
       - name: 语法 + 动态 import + 私有字段一致性
         run: node tools/check-core.mjs
       - name: 离线回归套件（280+ 断言，不需要 MC 服务器、不连网）
