@@ -2771,7 +2771,7 @@ export function apply(ctx, rawConfig) {
       input: { type: 'string', required: true, description: '要烧的物品英文 id（如 raw_iron / sand）' },
       count: { type: 'number', description: '烧几个（默认 1）' },
       fuel: { type: 'string', description: '指定燃料（缺省自动挑）' },
-      timeoutMs: { type: 'number', description: '等烧完的上限（默认 90000）' },
+      timeoutMs: { type: 'number', description: '等烧完的上限（默认按数量算：每个 10 秒 + 30 秒余量）' },
     },
     output: text(),
     timeoutMs: 300_000,

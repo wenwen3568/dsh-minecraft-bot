@@ -289,7 +289,21 @@ export async function craftItem (bot, api, name, count = 1, opts = {}) {
           ? bot.blockAt({ x: Math.floor(want.x), y: Math.floor(want.y), z: Math.floor(want.z) })
           : findCraftingTable(bot, 6)
       } catch { blk = findCraftingTable(bot, 6) }
-      if (blk?.name === CRAFTING_TABLE) return blk
+      if (blk?.name === CRAFTING_TABLE) {
+        // 🔴 客户端"看得见方块"≠"服务端已经认了它"（2026-11-25 真机踩到）。
+        //    刚放下的那一刻，本地世界先有方块（乐观预测），服务端还在处理 place 包。
+        //    这时立刻 activateBlock 开台子，服务端视角那格还是空气 ⇒ **静默不理会**，
+        //    mineflayer 不抛错、只是没产出。
+        //
+        //    正确做法：**等服务端把这一格的 blockUpdate 推回来**（那是"服务端认了"的硬证据），
+        //    而不是瞎等固定毫秒数（网络抖动会让它时好时坏，实测 5 轮里 3 轮翻车）。
+        //    拿不到 blockUpdate（老版本/服务端不推）就退化成让出几个 tick。
+        await api.settle?.()
+        try {
+          await api.waitBlockConfirmed?.(blk.position, 2_500)
+        } catch { /* 等不到也继续，下面的重试能兜住 */ }
+        return blk
+      }
       await new Promise((r) => setTimeout(r, 200))
     }
     // 没等到也别死磕：退回"按位置找最近的台子"
@@ -544,24 +558,51 @@ export async function craftItem (bot, api, name, count = 1, opts = {}) {
         }
         await api.settle?.()
         if (have() <= b4 + t * per) {
-          // 🔴 没产出 —— 十有八九是**那个台子用不了**（够得着但服务端不认它：残留幽灵方块、
-          //    被别的插件占着、或是上一轮放的但区块回滚了）。mineflayer 的 craft 有时**不抛错**、
-          //    只是静默没做（服务端不回 ack），所以这里也要兜底：
-          //    ① 把那个坏台子**拆掉**（避免它继续毒化后续尝试）；② 自己放一个新的重试一次。
+          // 🔴 没产出 —— mineflayer 的 craft 有时**不抛错**、只是静默没做（服务端不回 ack）。
+          //    原因和对应处理（2026-11-25 真机逐个验过）：
+          //
+          //    ① **刚放下的台子还没被服务端认**：`placeBlock` 只看客户端世界有没有方块，
+          //       服务端还在处理 place 包。此时 activateBlock 打过去，服务端视角那格还是空气。
+          //       ⇒ 先**关掉缓存的窗口**（关键！mineflayer 的 craft 插件把台子窗口缓存在闭包里，
+          //          不关就永远不会重新 activateBlock，只会对着旧窗口点格子），同一台子再来一次。
+          //    ② 台子**真的坏了**（幽灵方块 / 区块回滚 / 被别的插件占着）：重试没用，
+          //       才拆掉自己放一个新的。
+          //
+          //    ⚠️ 别再想"预开窗口探测服务端"——试过更糟：craft 插件的 windowOpen 监听会被抢，
+          //       缓存指向已关窗口，5 轮里 3 轮直接失败。
           if (tableForCraft && autoRefill) {
-            const badPos = blockPos(tableForCraft)
-            log.push(`用台子 @ ${JSON.stringify(badPos)} 合成 ${targetName} 没产出，拆掉换新的重试`)
-            try {
-              await api.breakBlock?.(badPos)
+            const samePos = blockPos(tableForCraft)
+            let got = false
+            // ① 关窗口 + 同一台子重试（最多 2 次：第一次多半是服务端还没认）
+            for (let k = 0; k < 2 && !got; k++) {
+              log.push(`用台子 @ ${JSON.stringify(samePos)} 合成 ${targetName} 没产出，关窗后同一台子重试（${k + 1}/2）`)
+              try { await api.closeCraftWindow?.() } catch { /* 没窗口就算了 */ }
               await api.settle?.()
-            } catch { /* 拆不掉也没关系，下面会找别的空位 */ }
-            table = null
-            const fresh = await placeAndWait()
-            if (fresh) {
-              tableForCraft = fresh
-              log.push(`放了新台子 @ ${JSON.stringify(blockPos(fresh))}，重试`)
-              await api.craftOnce(chosen, fresh)
-              await api.settle?.()
+              await new Promise((r) => setTimeout(r, 200))
+              try {
+                await api.craftOnce(chosen, tableForCraft)
+                await api.settle?.()
+                got = have() > b4 + t * per
+              } catch { /* 抛错了就走下一步 */ }
+            }
+
+            // ② 还不行 = 台子真坏了 → 拆掉换新的
+            if (!got) {
+              log.push(`台子 @ ${JSON.stringify(samePos)} 确实用不了，拆掉换新的重试`)
+              try {
+                await api.breakBlock?.(samePos)
+                await api.settle?.()
+              } catch { /* 拆不掉也没关系，下面会找别的空位 */ }
+              table = null
+              const fresh = await placeAndWait()
+              if (fresh) {
+                tableForCraft = fresh
+                log.push(`放了新台子 @ ${JSON.stringify(blockPos(fresh))}，重试`)
+                // 旧窗口（对应刚拆掉的台子）不清掉，新台子也不会被 activateBlock
+                try { await api.closeCraftWindow?.() } catch { /* 没窗口就算了 */ }
+                await api.craftOnce(chosen, fresh)
+                await api.settle?.()
+              }
             }
           }
           if (have() <= b4 + t * per) break   // 还是没涨 = 真失败，别空转

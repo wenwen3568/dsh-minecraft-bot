@@ -263,6 +263,9 @@ export const TIMEOUTS = {
   attack: 4_000,
   /* 外部插件 / 工作方块（合成、冶炼、寻路、采集、进食）—— 都是"等服务端 ack"的 promise */
   craft: 20_000,
+  /* 冶炼：**1 个物品就要烧 10 秒**（200 tick），所以这里给的是"1 个"的保底值；
+     实际时长由 `smelt()` 按数量算出 smeltBudget（n×10s+30s）覆盖传进 `#t`，
+     否则烧第 4 个就会在这 30 秒上被误判超时（2026-11-25 真机踩到）。 */
   smelt: 30_000,
   pathfind: 45_000,
   collect: 60_000,
@@ -527,8 +530,10 @@ export class McBot extends EventEmitter {
    * 任一触发都：记 stats/lastTimeout → 松控制位（防"一直按住"跑飞）→ 抛错让工具正常返回。
    * 这样 execute **必然结算**，turn 就不会永久卡在"生成中"。
    */
-  #t (promise, kind, label = kind) {
-    const ms = this.cfg.timeouts?.[kind] ?? TIMEOUTS[kind] ?? 10_000
+  #t (promise, kind, label = kind, msOverride = null) {
+    const ms = Number(msOverride) > 0
+      ? Number(msOverride)
+      : (this.cfg.timeouts?.[kind] ?? TIMEOUTS[kind] ?? 10_000)
     const raced = raceAbort(promise, this.abortSignal, label)
     return withTimeout(raced, ms, label).catch((e) => {
       if (e?.mcTimeout || e?.mcAborted) {
@@ -1943,14 +1948,76 @@ export class McBot extends EventEmitter {
       async breakBlock (pos) {
         try { return await self.breakBlock(pos) } catch { return null }
       },
-      /** 合成一次（**套超时**：bot.craft 等服务端 ack） */
-      async craftOnce (recipe, table) {
+      /**
+       * 合成一次（**套超时**：bot.craft 等服务端 ack）。
+       *
+       * 🔴 `closeWindowAfter` 的由来（2026-11-25 真机踩到）：
+       *    mineflayer 的 craft 插件把台子窗口缓存在模块闭包 `windowCraftingTable` 里
+       *    （见 node_modules/mineflayer/lib/plugins/craft.js），**一旦打开过就一直复用**，
+       *    只有 `bot.closeWindow()` 才会清掉。后果：
+       *      · 用刚放下的台子合成 → 服务端还没认那个方块，activateBlock 落空 ⇒ 静默无产出；
+       *      · 我们再"用同一个台子重试" → 复用的还是那个**打空了的旧窗口** ⇒ 继续失败；
+       *      · 只能把台子拆了重放（旧逻辑就是这么绕的，白拆一个台子）。
+       *    所以"重试"前必须先关掉窗口，让它重新 activateBlock 一次。
+       */
+      async craftOnce (recipe, table, { closeWindowAfter = false } = {}) {
         const b = self.requireBot()
-        return self.#t(Promise.resolve(b.craft(recipe, 1, table ?? null)), 'craft',
-          `合成 ${recipe?.result ? (nameOfRecipeResult(b, recipe) ?? '物品') : '物品'}`)
+        try {
+          return await self.#t(Promise.resolve(b.craft(recipe, 1, table ?? null)), 'craft',
+            `合成 ${recipe?.result ? (nameOfRecipeResult(b, recipe) ?? '物品') : '物品'}`)
+        } finally {
+          if (closeWindowAfter) { try { b.closeWindow?.(b.currentWindow ?? undefined) } catch { /* 已关 */ } }
+        }
       },
       /** 每次 craft 之后让服务端状态落一落（背包同步） */
       async settle () { await sleep(150) },
+      /**
+       * 关掉当前开着的窗口（主要是合成台窗口）。
+       * 为什么需要它：mineflayer 的 craft 插件把台子窗口缓存在闭包里，
+       * 不关掉就**不会重新 activateBlock**（见 craftOnce 的注释）。
+       */
+      async closeCraftWindow () {
+        const b = self.bot
+        if (!b?.currentWindow) return false
+        try { b.closeWindow(b.currentWindow) } catch { return false }
+        await sleep(120)
+        return true
+      },
+      /**
+       * 等服务端把某一格的 `blockUpdate` 推回来（= 服务端确认了这一格的状态）。
+       *
+       * 为什么需要（2026-11-25 真机踩到）：`placeBlock` 返回时只是**客户端世界**有了方块
+       * （乐观预测），服务端可能还在处理 place 包。此时拿这个方块去 `activateBlock`，
+       * 服务端视角那格还是空气 ⇒ 静默不理会，mineflayer 不抛错、只是没产出。
+       * 表现就是"第一次用刚放下的台子合成必定空手"。
+       *
+       * 硬等固定毫秒不可靠（网络/服务器 tick 抖动会让它时好时坏，实测 5 轮里 3 轮翻车）；
+       * 服务端推 `blockUpdate:(x,y,z)` 才是"它认了"的证据。等不到就按超时放行，
+       * 由调用方的重试兜住（别在这里卡死）。
+       */
+      async waitBlockConfirmed (pos, budgetMs = 2_500) {
+        const b = self.bot
+        if (!b?.position || !pos) return false
+        const key = `blockUpdate:(${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)})`
+        const keyAlt = `blockUpdate:(${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)})`
+        return await new Promise((resolve) => {
+          let done = false
+          const finish = (v) => {
+            if (done) return
+            done = true
+            try { b.removeListener(key, onUpd) } catch { /* 忽略 */ }
+            try { b.removeListener(keyAlt, onUpd) } catch { /* 忽略 */ }
+            clearTimeout(timer)
+            resolve(v)
+          }
+          const onUpd = () => finish(true)
+          const timer = setTimeout(() => finish(false), Math.max(200, Number(budgetMs) || 2_500))
+          try {
+            b.once(key, onUpd)
+            b.once(keyAlt, onUpd)
+          } catch { finish(false) }
+        })
+      },
     }
   }
 
@@ -2003,12 +2070,17 @@ export class McBot extends EventEmitter {
    *
    * @param {{input:string, count?:number, fuel?:string, furnaceName?:string, timeoutMs?:number}} args
    */
-  async smelt ({ input, count = 1, fuel = null, furnaceName = 'furnace', timeoutMs = 90_000 } = {}) {
+  async smelt ({ input, count = 1, fuel = null, furnaceName = 'furnace', timeoutMs = null } = {}) {
     const b = this.requireBot()
     const want = Math.max(1, Math.floor(Number(count) || 1))
     const inName = String(input ?? '').trim()
     if (!inName) throw new Error('要给要烧的物品名（如 raw_iron / sand / cobblestone）')
     if (!b.registry?.itemsByName?.[inName]) throw new Error(`未知物品：${inName}`)
+
+    // 🔴 超时按数量放大（2026-11-25）：1 个物品要烧 **10 秒**，固定 90s 只够 9 个 ——
+    //    烧 16 个铁矿时会在这 90 秒上死掉，而且早先"输出槽有货就返回"会让它更早误报完成。
+    //    这里给 (n × 10s) + 30s 余量。调用方显式传了 timeoutMs 就用它。
+    const smeltBudget = Number(timeoutMs) > 0 ? Number(timeoutMs) : (want * 10_000 + 30_000)
 
     // ⚠️ 检查顺序有讲究：**先查熔炉，再查原料**。
     //    反过来的话，"没炉子又没原料"会报"背包里没有 raw_iron"，把人引去挖矿，
@@ -2056,7 +2128,7 @@ export class McBot extends EventEmitter {
       }
       await this.#t(Promise.resolve(window.putFuel(b.registry.itemsByName[fuelPick.name].id, null, Math.min(fuelNeed, fuelPick.count))), 'smelt', '放燃料')
       await this.#t(Promise.resolve(window.putInput(b.registry.itemsByName[inName].id, null, n)), 'smelt', '放料')
-      const out = await this.#t(this.#waitSmeltDone(b, inName, n, timeoutMs, window), 'smelt', `烧 ${n} 个 ${inName}`)
+      const out = await this.#t(this.#waitSmeltDone(b, inName, n, smeltBudget, window), 'smelt', `烧 ${n} 个 ${inName}`, smeltBudget)
       // 产物要**主动取出**（不取的话它留在熔炉的产出槽里，背包看不到，等于白烧）
       let taken = null
       try {
@@ -2092,29 +2164,35 @@ export class McBot extends EventEmitter {
    *      原来设 1.5 秒，导致刚放完料就以为卡住了，冶炼明明成功却报"没烧出东西"。
    */
   async #waitSmeltDone (b, inputName, want, timeoutMs, window = null) {
+    void b; void inputName   // 保留签名（调用方按位置传，改签名容易漏改）
     const t0 = Date.now()
-    const beforeInput = countItem(b, inputName)
-    let last = beforeInput
+    let lastOut = -1
     let lastProgressAt = Date.now()
-    // 一个物品 10s（200 tick）；给它 2 个周期的余量再判"卡住"
-    const stallMs = 25_000
+    // 一个物品 10s（200 tick）；给它一个半周期的余量再判"卡住"
+    const stallMs = 15_000
+    /** 读熔炉两个槽（老版本 mineflayer 没有这些方法，读不到就按 0 算） */
+    const slots = () => {
+      let out = 0
+      let inp = 0
+      try { out = window?.outputItem?.()?.count ?? 0 } catch { /* 没有这个方法 */ }
+      try { inp = window?.inputItem?.()?.count ?? 0 } catch { /* 没有这个方法 */ }
+      return { out, inp }
+    }
     while (Date.now() - t0 < timeoutMs) {
-      await sleep(500)
-      // ① 输出槽有货 = 已经烧出来了
-      try {
-        const outSlot = window?.outputItem?.()
-        if (outSlot && outSlot.count > 0) return { produced: outSlot.count, via: 'output-slot' }
-      } catch { /* 老版本没有这个方法 */ }
-      // ② 输入被吃掉
-      const now = countItem(b, inputName)
-      const consumed = beforeInput - now
-      if (consumed >= want) return { produced: consumed, via: 'input-consumed' }
-      if (now !== last) { last = now; lastProgressAt = Date.now() }
+      await sleep(400)
+      const { out, inp } = slots()
+      // ① 输出槽够数了
+      if (out >= want) return { produced: out, via: 'output-slot' }
+      // ② 输入槽空了 + 已经产出了一些 = 炉子干完活了（比如只塞得下这么多）
+      if (inp === 0 && out > 0) return { produced: out, via: 'input-empty' }
+      // ③ 进度看**输出槽**，别用背包里的输入数量（`putInput` 早就把原料移出背包了，
+      //    拿它当进度会永远"没变化"，白等满 25 秒后误判 stalled 提前收工）
+      if (out !== lastOut) { lastOut = out; lastProgressAt = Date.now() }
       else if (Date.now() - lastProgressAt > stallMs) {
-        return { produced: consumed, via: 'stalled' }
+        return { produced: out, via: 'stalled' }
       }
     }
-    return { produced: beforeInput - countItem(b, inputName), via: 'timeout' }
+    return { produced: slots().out, via: 'timeout' }
   }
 
   /* ───────────── 朝向（"看向我"就该用工具，不要用 /tp 指令） ───────────── */
@@ -2246,6 +2324,16 @@ export class McBot extends EventEmitter {
     //    （mc_build 说 placed，mc_scan 复查一格没放下）
     const now = b.blockAt(pos)?.name ?? null
     const ok = now === item.name
+
+    // 🔴 还要等**服务端**确认这一格（2026-11-25 真机踩到）：
+    //    `blockAt` 读的是客户端世界，刚放下的方块是**乐观预测**先出现的；
+    //    服务端可能还没处理完 place 包。此时上层（如合成工作台）立刻 activateBlock，
+    //    服务端视角那格还是空气 ⇒ 静默不理会，`bot.craft` 会一直等 updateSlot 直到超时
+    //    （实测报 "Event updateSlot:0 did not fire within timeout of 20000ms"，木镐一个没出）。
+    //    所以这里等服务端把这一格的 blockUpdate 推回来再返回，把"放好了"这件事坐实。
+    if (ok) {
+      try { await this.waitBlockConfirmed(pos, 1_500) } catch { /* 等不到也继续，上层有重试兜底 */ }
+    }
     return {
       placed: ok ? item.name : false,
       requested: item.name,

@@ -26,7 +26,7 @@
 > **它们已经打包在本插件里，装本插件就自动带上、进服自动生效**，你不需要另外安装。
 > 详见后文「[生存玩法](#生存玩法工作台合成与插件能力)」。
 
-> ⚠️ **当前为预览版 `0.2.0-beta.4`**
+> ⚠️ **当前为预览版 `0.2.0-beta.5`**
 >
 > 预览版，面向 DSH **0.2.0-rc.2 及以上**（含 0.2.1-rc.2）。0.2.0 正式版功能尚未全部完成，本版本先行发布已完成功能，以及支持 DSH 0.2.0-rc.2 / 0.2.1-rc.2 和 DSH Desktop。**预览版可能存在未知问题，如遇到请向我们反馈。**
 >
@@ -63,11 +63,11 @@
 >
 > 无论你从何种方式安装本插件，安装完成后，为保证所有功能正常，务必完全重启DSH实例。
 
-对你的 AI 说：`帮我安装插件 npm:dsh_minecraft_bot@^0.2.0-beta.4`
+对你的 AI 说：`帮我安装插件 npm:dsh_minecraft_bot@^0.2.0-beta.5`
 
 ### DSH 插件管理
 
-在 DSH 主界面找到“插件”，点击打开插件页面，点击“添加插件”按钮，在输入框中输入 `dsh_minecraft_bot@^0.2.0-beta.4`，点击安装。
+在 DSH 主界面找到“插件”，点击打开插件页面，点击“添加插件”按钮，在输入框中输入 `dsh_minecraft_bot@^0.2.0-beta.5`，点击安装。
 
 ### 手动安装
 
@@ -86,7 +86,7 @@ dsh plugin --profile web add github:wenwen3568/dsh-minecraft-bot
 从 npm 安装（**发布后可用**）：
 
 ```bash
-dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
+dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.5
 ```
 
 别忘了重启DSH。
@@ -110,7 +110,7 @@ dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
 
 ## 生存玩法：工作台合成与插件能力
 
-> 从 `0.2.0-beta.4` 开始，助理**真的会做东西**了 —— 不只是挖和放，而是能砍树 → 做木板 → 做木棍 →
+> 从 `0.2.0-beta.5` 开始，助理**真的会做东西**了 —— 不只是挖和放，而是能砍树 → 做木板 → 做木棍 →
 > 造工作台 → 合成工具/装备/熔炉，整条链路自己走完。
 
 ### 它现在会做什么
@@ -220,7 +220,7 @@ CI 跑的就是这两条（`.github/workflows/ci.yml`）：**ubuntu（Node 22 / 
   名字必须是 `NPM_TOKEN`，值是 npm 的 Automation token。
 - 也可以**在本机手动发**（不依赖任何 secret）：`npm login` 后跑 `npm run publish:npm`
   —— 前置校验、失败即停、默认要确认，细则见 `agent-docs/release.md`。
-- **每个版本改了什么**见 [`CHANGELOG.md`](CHANGELOG.md)（`0.2.0-beta.4`：新增工作台合成 / 冶炼 / 插件集成，
+- **每个版本改了什么**见 [`CHANGELOG.md`](CHANGELOG.md)（`0.2.0-beta.5`：新增工作台合成 / 冶炼 / 插件集成，
   修复创造模式移动卡住；`0.2.0-beta.3`：新增联网搜索 / 网页抓取 / 规则查看 / 文件系统工具、
   MC 模式工具面调整，修 DSH 0.2.1-rc.2 上新建会话报错；`0.2.0-beta.2`：修新 DSH 上装不上 / 跑不起来、
   新增 MC+模式、连接类工具收口；`0.1.7`：修 1.21/1.21.1 进服掉线、断线状态不同步、`mc_events` 等待堵住唤醒；
@@ -293,7 +293,7 @@ players through tool calls to build, survive and finish tasks.
 > automatically on spawn. You do not install them separately.
 > See [Survival gameplay](#survival-gameplay-workbench-crafting-and-plugin-capabilities) below.
 
-> ⚠️ **Preview release `0.2.0-beta.4`**
+> ⚠️ **Preview release `0.2.0-beta.5`**
 >
 > For DSH **0.2.0-rc.2 and above** (including 0.2.1-rc.2). Not all 0.2.0 features are finished; this
 > release ships what is done, plus support for DSH 0.2.0-rc.2 / 0.2.1-rc.2 and DSH Desktop. **A preview
@@ -337,11 +337,11 @@ players through tool calls to build, survive and finish tasks.
 >
 > However you install the plugin, fully restart the DSH instance afterwards so every feature works.
 
-Tell your agent: *"install the plugin `npm:dsh_minecraft_bot@^0.2.0-beta.4`"*
+Tell your agent: *"install the plugin `npm:dsh_minecraft_bot@^0.2.0-beta.5`"*
 
 ### DSH plugin manager
 
-Open **Plugins** from the DSH main UI, click **Add plugin**, enter `dsh_minecraft_bot@^0.2.0-beta.4`, and
+Open **Plugins** from the DSH main UI, click **Add plugin**, enter `dsh_minecraft_bot@^0.2.0-beta.5`, and
 install.
 
 ### Manual install
@@ -361,7 +361,7 @@ dsh plugin --profile web add github:wenwen3568/dsh-minecraft-bot
 Install from npm (**once published**):
 
 ```bash
-dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.4
+dsh plugin --profile web add dsh_minecraft_bot@^0.2.0-beta.5
 ```
 
 Don't forget to restart DSH.
@@ -383,7 +383,7 @@ Outside these two modes, other modes no longer expose MC-play tools (MC admin to
 
 ## Survival gameplay: workbench crafting and plugin capabilities
 
-> Since `0.2.0-beta.4` the agent **actually makes things** — not just digging and placing, but the
+> Since `0.2.0-beta.5` the agent **actually makes things** — not just digging and placing, but the
 > whole chain: chop a tree → planks → sticks → build a crafting table → craft tools, gear, a furnace.
 
 ### What it can do now
@@ -502,7 +502,7 @@ first (`prepublishOnly`) — **a broken tree cannot be published**.
 - You can also **publish from your own machine** (no secret needed): `npm login`, then
   `npm run publish:npm` — pre-flight checks, stops on failure, asks for confirmation by default;
   details in `agent-docs/release.md`.
-- **What changed in each version** — see [`CHANGELOG.md`](CHANGELOG.md) (`0.2.0-beta.4`: web search,
+- **What changed in each version** — see [`CHANGELOG.md`](CHANGELOG.md) (`0.2.0-beta.5`: web search,
   web fetch, rules inspection and filesystem tools, MC-mode toolset changes, fix for session creation
   errors on DSH 0.2.1-rc.2; `0.2.0-beta.2`: fixes so it installs / runs on the new DSH, new MC+ mode,
   connection tools consolidated; `0.1.7`: 1.21/1.21.1 disconnect, connection state out of sync,
