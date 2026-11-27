@@ -93,7 +93,7 @@ export const recipeNeedsTable = (recipe) => Boolean(recipe?.requiresTable)
 function isCraftable (bot, name) {
   const it = itemOf(bot, name)
   if (!it) return false
-  try { return (bot.recipesAll(it.id, null, true) ?? []).length > 0 } catch { return false }
+  try { return usableRecipes(bot, it.id).length > 0 } catch { return false }
 }
 
 /**
@@ -119,7 +119,7 @@ function reachable (bot, name, need, depth, seen) {
   const it = itemOf(bot, name)
   if (!it) return false
   let recipes = []
-  try { recipes = bot.recipesAll(it.id, null, true) ?? [] } catch { return false }
+  try { recipes = usableRecipes(bot, it.id) } catch { return false }
   if (!recipes.length) return false
   const next = new Set(seen)
   next.add(name)
@@ -171,7 +171,7 @@ function rankRecipes (bot, recipes, depth = MAX_CRAFT_DEPTH) {
 function safeRecipes (bot, name) {
   const it = itemOf(bot, name)
   if (!it) return []
-  try { return bot.recipesAll(it.id, null, true) ?? [] } catch { return [] }
+  try { return usableRecipes(bot, it.id) } catch { return [] }
 }
 
 /** 背包物品总件数 —— 判断"这一轮到底有没有进展"（防补料锯齿死循环） */
@@ -183,12 +183,40 @@ function totalItems (bot) {
  * 列出一个物品**所有已知配方**（含"材料不够"的那些，用于缺口报告）。
  * @returns {Array<{recipe:any, cost:Array<{name:string,count:number}>, result:{name:string,count:number}, needsTable:boolean, canMake:boolean, shortfall:Array<{name:string,need:number,have:number}>}>}
  */
+/**
+ * 安全取某物品的**所有可用**配方（出错/未知一律空数组）。
+ *
+ * 🔴 要剔掉两类"不是工作台配方"的数据（2026-11-25 真机逐条核对过）：
+ *    ① **结果是空气**（`result.id === 0`）：注册表里 `air` 居然挂了一条
+ *       "paper×8 + filled_map → air" 的配方，纯属坏数据。不滤掉的话
+ *       `mc_recipes{name:"air"}` 会报"空气能合成"，助理照着去凑纸和地图。
+ *    ② 既没有 `inShape`（格子摆法）也没有 `ingredients`（无形状材料）的：
+ *       没有任何材料信息，`bot.craft` 必然失败。
+ *
+ * ⚠️ 别用"`inShape` 为空就丢弃"这种粗暴判断 —— 木板 / 木棍 / 花岗岩这类
+ *    **无形状配方**的 `inShape` 就是 `null`，靠 `ingredients` 描述材料
+ *    （`oak_planks` = `[{id:134,count:-1}]`，`granite` = `[diorite, quartz]`）。
+ *    早先版本按 `inShape` 判断，会把花岗岩、闪长岩这些真配方一起误杀。
+ */
+function usableRecipes (bot, itemId) {
+  let all = []
+  try { all = bot.recipesAll(itemId, null, true) ?? [] } catch { return [] }
+  return all.filter((r) => {
+    if (!r) return false
+    // ① 产物是空气 = 坏数据
+    if (Number(r.result?.id) === 0) return false
+    // ② 至少要有材料信息，否则 bot.craft 无从下手
+    const hasShape = Array.isArray(r.inShape) && r.inShape.length > 0
+    const hasIngredients = Array.isArray(r.ingredients) && r.ingredients.length > 0
+    return hasShape || hasIngredients
+  })
+}
+
 export function listRecipes (bot, name) {
   const item = itemOf(bot, name)
   if (!item) throw new Error(`未知物品：${name}（要英文 id，如 oak_planks / stick / crafting_table）`)
   const inv = inventoryCounts(bot)
-  let all = []
-  try { all = bot.recipesAll(item.id, null, true) ?? [] } catch { all = [] }
+  const all = usableRecipes(bot, item.id)
   return all.map((recipe) => {
     const cost = recipeCost(bot, recipe)
     const shortfall = cost
@@ -490,12 +518,12 @@ export async function craftItem (bot, api, name, count = 1, opts = {}) {
       let recipes = []
       if (forcedRecipe) recipes = [forcedRecipe]
       else {
-        try { recipes = bot.recipesAll(item.id, null, true) ?? [] } catch (e) {
+        try { recipes = usableRecipes(bot, item.id) } catch (e) {
           log.push(`读配方失败：${e.message}`); break
         }
       }
       if (!recipes.length) {
-        const err = new Error(`没有 ${targetName} 的已知配方（它是原料或需要特殊工作站？）`)
+        const err = new Error(`没有 ${targetName} 的已知配方（它是原料、或只能在工作站做：切石机 / 锻造台等）`)
         err.gaps = []
         throw err
       }
@@ -692,7 +720,7 @@ export function craftPlan (bot, name, count = 1) {
     if (missing <= 0) return
     if (depth > MAX_CRAFT_DEPTH) { need.set(n, (need.get(n) ?? 0) + missing); return }
     let recipes = []
-    try { recipes = bot.recipesAll(it.id, null, true) ?? [] } catch { recipes = [] }
+    try { recipes = usableRecipes(bot, it.id) } catch { recipes = [] }
     // 优先"递归到底真能做出来"且是 2×2 的那条（见 rankRecipes / reachable 的注释）
     const ranked = rankRecipes(bot, recipes, MAX_CRAFT_DEPTH - depth)
     const pick = ranked.find((r) => !recipeNeedsTable(r)) ?? ranked[0]
