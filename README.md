@@ -1,6 +1,6 @@
 <div align="center">
  
-[![Moe Counter](https://count.getloli.com/get/dsh-minecraft-bot@?theme=moebooru)](https://github.com/wenwen3568/dsh-minecraft-bot/)
+[![Moe Counter](https://count.getloli.com/get/@dsh-minecraft-bot?theme=moebooru)](https://github.com/wenwen3568/dsh-minecraft-bot/)
 
 </div> 
 
