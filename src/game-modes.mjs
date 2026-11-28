@@ -27,17 +27,17 @@ export const GAME_MODES = [
   {
     id: 'survival',
     label: '生存',
-    desc: '自己挖矿合成，不给物品、不能飞',
+    desc: '正常挖矿合成打怪，材料靠自己采集',
   },
   {
     id: 'creative',
     label: '创造',
-    desc: '无限方块、可飞行，适合快速搭建',
+    desc: '无限方块、可飞行，适合快速搭建创意建筑',
   },
   {
     id: 'adventure',
     label: '冒险',
-    desc: '不能破坏和放置方块，只能探索交互',
+    desc: '探索地图、触发剧情、与世界互动（不可破坏/放置方块）',
   },
 ]
 

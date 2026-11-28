@@ -1681,7 +1681,25 @@ export class McBot extends EventEmitter {
         const aheadFloor = floorAt(pos.x + (dx / (horiz || 1)) * 0.9, pos.z + (dz / (horiz || 1)) * 0.9)
         const needClimb = dy > 0.9 || (aheadFloor !== null && aheadFloor > pos.y + 0.6)
         const inLiquid = Boolean(b.entity.isInWater || b.entity.isInLava)
-        if ((needClimb || inLiquid) && Date.now() > jumpUntil) { b.setControlState('jump', true); jumpUntil = Date.now() + (inLiquid ? 600 : 450) }
+
+        // 🔴 检测前方是否为深水（水深 > 1 格）：若是则判定为"阻挡"并触发跳跃/改向
+        const aheadX = pos.x + (dx / (horiz || 1)) * 1.2
+        const aheadZ = pos.z + (dz / (horiz || 1)) * 1.2
+        let deepWater = false
+        if (!inLiquid) {
+          const waterDepth = (() => {
+            const baseY = Math.floor(pos.y)
+            for (let dy = 0; dy >= -3; dy--) {
+              const blk = b.blockAt(new Vec3(Math.floor(aheadX), baseY + dy, Math.floor(aheadZ)))
+              if (!blk) continue
+              if (blk.name === 'water' || blk.name === 'lava') return -dy + 1
+              if (blk.boundingBox === 'block') return 0
+            }
+            return 0
+          })()
+          deepWater = waterDepth > 1
+        }
+        if ((needClimb || inLiquid || deepWater) && Date.now() > jumpUntil) { b.setControlState('jump', true); jumpUntil = Date.now() + (inLiquid || deepWater ? 600 : 450) }
         if (Date.now() > jumpUntil) b.setControlState('jump', false)
         if (pos.distanceTo(last) > 0.25) { last = pos.clone(); lastProgress = Date.now() }
         else if (Date.now() - lastProgress > 1200) {
@@ -1691,11 +1709,16 @@ export class McBot extends EventEmitter {
         await sleep(120)
       }
       const end = b.entity.position
+      // 🔴 超时返回时带上原因：区分"进水"、"卡墙"、"预算耗尽"
+      let reason = 'timeout'
+      if (b.entity.isInWater) reason = 'inDeepWater'
+      else if (pos.distanceTo(last) < 0.1) reason = 'stuck'
       return {
         arrived: false,
         position: { x: Math.floor(end.x), y: Math.floor(end.y), z: Math.floor(end.z) },
         ms: Date.now() - t0,
         remaining: Number(end.distanceTo(new Vec3(target.x, target.y, target.z)).toFixed(2)),
+        reason,
       }
     } finally {
       for (const k of ['forward', 'jump', 'back', 'left', 'right']) b.setControlState(k, false)
@@ -1758,6 +1781,10 @@ export class McBot extends EventEmitter {
         const { GoalNear } = goalsMod
         try {
           const movements = new (goalsMod.Movements ?? Object)(b)
+          // 🔴 禁止进入深水（depth > 1）：把液体代价拉高、禁止大跨度落水
+          movements.liquidCost = 100          // 水/岩浆代价极高，寻路会绕开
+          movements.maxDropDown = 1           // 禁止跳下 >1 格的落差（避免跳进深水/深坑）
+          movements.allowFreeMotion = false   // 关闭自由飞行模式（防误入水）
           b.pathfinder.setMovements(movements)
         } catch { /* 老版本没有 Movements 导出也不致命 */ }
         const goal = new GoalNear(dest.x, dest.y, dest.z, Math.max(Math.floor(arrive), 1))
@@ -1849,7 +1876,7 @@ export class McBot extends EventEmitter {
     }
   }
 
-  async dig ({ name = null, pos = null, maxDistance = 6, count = 1 } = {}) {
+  async dig ({ name = null, pos = null, maxDistance = 6, count = 1, autoPickup = true } = {}) {
     const b = this.requireBot()
     if (!this.can('break')) throw new Error(this.policyReason('break'))
     const out = []
@@ -1889,6 +1916,22 @@ export class McBot extends EventEmitter {
         await this.#t(b.dig(target, true), 'dig', `挖 ${target.name}`)
         await sleep(200)
         out.push(`挖掉 ${nm} @ ${p} → 现在 ${b.blockAt(p)?.name ?? '?'}`)
+
+        // 🔴 autoPickup：挖完后自动走到掉落物拾取（默认开启）
+        if (autoPickup) {
+          try {
+            const drops = Object.values(b.entities).filter((e) =>
+              e.objectType === 'Item' && e.position.distanceTo(p) <= 4
+            )
+            for (const drop of drops) {
+              if (drop.name === nm) {
+                await this.gotoPoint({ x: drop.position.x, y: drop.position.y, z: drop.position.z }, { arrive: 1.5, budget: 5000 })
+                await sleep(200) // 等拾取动画
+                break
+              }
+            }
+          } catch { /* 忽略拾取失败 */ }
+        }
       } catch (e) { out.push(`挖 ${target.name} 失败：${e.message}`); break }
     }
     return out
@@ -2313,7 +2356,9 @@ export class McBot extends EventEmitter {
         }
       }
     }
-    if (!candidates.length) return null
+    // 🔴 即使没找到可放位置，也返回前几个"最近的空气格"供错误提示用
+    const fallback = candidates.length ? candidates.slice(0, 3).map(c => c.pos) : null
+    if (!candidates.length) return { pos: null, fallback }
     // 优先：距离近、且面朝向 bot（面向向量与 bot->pos 夹角小）
     candidates.sort((a, b) => {
       const toBotA = new Vec3(origin.x - a.pos.x, origin.y - a.pos.y, origin.z - a.pos.z)
@@ -2324,7 +2369,7 @@ export class McBot extends EventEmitter {
       const faceScoreB = dotB > 0 ? 0 : 1
       return faceScoreA - faceScoreB || a.dist - b.dist
     })
-    return candidates[0].pos
+    return { pos: candidates[0].pos, fallback: candidates.slice(0, 3).map(c => c.pos) }
   }
 
   /** 把背包里的方块放到某个坐标（先走近、必要时往上搭） */
@@ -2334,11 +2379,19 @@ export class McBot extends EventEmitter {
 
     // 自动定位：没给坐标就找个脚边能放的地方
     let pos
+    let fallbackSuggestions = []
     if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
       pos = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))
     } else {
-      pos = this.#autoPlacePos()
-      if (!pos) throw new Error('找不到可放置的位置（周围全是实心方块或未加载）——请指定 x/y/z')
+      const autoResult = this.#autoPlacePos()
+      pos = autoResult.pos
+      fallbackSuggestions = autoResult.fallback || []
+      if (!pos) {
+        const suggestion = fallbackSuggestions.length
+          ? `可尝试：${fallbackSuggestions.map(p => `(${p.x},${p.y},${p.z})`).join('、')}`
+          : '周围全是实心方块或未加载'
+        throw new Error(`找不到可放置的位置（${suggestion}）——请指定 x/y/z`)
+      }
     }
     const want = name ? String(name) : null
     // 选方块：指定名字，否则用背包里第一种可放置方块
@@ -2389,8 +2442,18 @@ export class McBot extends EventEmitter {
       throw new Error(`(${pos.x},${pos.y},${pos.z}) 未加载（区块还没到）——先 mc_map 看看，或换近一点的点位`)
     }
     if (!canPlaceInto(targetBlock)) {
-      throw new Error(`(${pos.x},${pos.y},${pos.z}) 已被 ${targetBlock.name} 占住，放不进去——`
-        + '换个位置，或先 mc_act{mode:"break"} 清掉')
+      // 🔴 给出附近可用的空气格坐标建议
+      const suggestions = []
+      for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
+        const np = new Vec3(pos.x + dx, pos.y + dy, pos.z + dz)
+        const nb = b.blockAt(np)
+        if (nb && isAir(nb.name) && this.#placeRef(np)) {
+          suggestions.push(`(${np.x},${np.y},${np.z})`)
+          if (suggestions.length >= 3) break
+        }
+      }
+      const hint = suggestions.length ? ` 可尝试：${suggestions.join('、')}` : ''
+      throw new Error(`(${pos.x},${pos.y},${pos.z}) 已被 ${targetBlock.name} 占住，放不进去${hint}——换个位置，或先 mc_act{mode:"break"} 清掉`)
     }
     let ref = this.#placeRef(pos)
     if (!ref) {
@@ -2669,7 +2732,31 @@ export class McBot extends EventEmitter {
   }
 
   async #runStep (s) {
-    const op = String(s.op ?? '')
+    // 🔴 支持两种格式：
+    //   1. { op: "move", x: 10, y: 64, z: 100 }  —— 旧格式
+    //   2. { tool: "mc_move", args: { x: 10, y: 64, z: 100 } }  —— 新格式（mc_* 工具名）
+    let op = String(s.op ?? '')
+    let stepArgs = { ...s }
+    if (!op && s.tool) {
+      // 将 mc_* 工具名映射到内部 op 名
+      const toolMap = {
+        'mc_move': 'move',
+        'mc_act': 'act',  // 不直接支持，需拆解
+        'mc_dig': 'dig',
+        'mc_give': 'give',
+        'mc_sequence': 'sequence', // 不支持嵌套
+        'mc_build': 'build',
+        'mc_craft': 'craft',
+        'mc_smelt': 'smelt',
+        'mc_collect': 'collect',
+        'mc_fight': 'fight',
+        'mc_follow': 'follow',
+      }
+      op = toolMap[s.tool] ?? ''
+      if (s.args && typeof s.args === 'object') stepArgs = { ...s.args }
+      else stepArgs = {}
+    }
+    if (!op) throw new Error(`步骤缺少 op 或 tool 字段：${JSON.stringify(s).slice(0, 100)}`)
     switch (op) {
       case 'wait': {
         const rawSec = s.sec != null ? Number(s.sec) : (s.ms != null ? Number(s.ms) / 1000 : 1)
@@ -2708,7 +2795,7 @@ export class McBot extends EventEmitter {
       case 'eat':     return this.autoEat({ action: s.action ?? 'eat', opts: s.opts ?? null })
       default:
         throw new Error(`未知步骤 op："${op}"（可用：wait/move/look/toward/place/break/dig/use/attack/equip/give/toss/say/jump`
-          + '/craft/smelt/collect/goto/fight/follow/eat）')
+          + '/craft/smelt/collect/goto/fight/follow/eat；或用 {tool:"mc_move", args:{...}} 格式)')
     }
   }
 
@@ -2735,7 +2822,7 @@ export class McBot extends EventEmitter {
    *   白名单判定：默认用**内置**那份（保底，独立测试时不依赖插件配置）；
    *   插件层会传自己的可配置白名单进来（用户 2026-09-16 要求白名单可配置）。
    */
-  command (cmd, { allow = null } = {}) {
+  async command (cmd, { allow = null, waitForResponse = false, responseTimeout = 3000 } = {}) {
     const b = this.requireBot()
     const c = String(cmd).trim()
     if (!c.startsWith('/')) throw new Error('指令必须以 / 开头')
@@ -2746,7 +2833,34 @@ export class McBot extends EventEmitter {
     }
     const ok = typeof allow === 'function' ? Boolean(allow(name)) : DEFAULT_COMMAND_WHITELIST.has(name)
     if (!ok) throw new Error(`指令不在白名单：/${name}`)
+
+    // 🔴 可选：等待服务端回执（系统消息/命令反馈），避免"发了但服务端拒了"却误判成功
+    let responsePromise = null
+    if (waitForResponse) {
+      responsePromise = new Promise((resolve) => {
+        const handler = (text) => {
+          // 简单判断：包含"unknown command"、"permission"、"no permission"、"cannot"、"failed" 等视为失败
+          const lower = text.toLowerCase()
+          const isError = /unknown command|permission denied|no permission|cannot|failed|错误|拒绝|无权限|不存在/.test(lower)
+          if (isError || lower.includes(name)) {
+            b.off('system', handler)
+            resolve({ accepted: !isError, raw: text, error: isError ? text : null })
+          }
+        }
+        b.on('system', handler)
+        // 超时兜底
+        setTimeout(() => {
+          b.off('system', handler)
+          resolve({ accepted: true, raw: null, error: null, note: '等待回执超时，默认视为成功' })
+        }, responseTimeout)
+      })
+    }
+
     b.chat(c)
+    if (waitForResponse) {
+      const resp = await responsePromise
+      return { command: c, ...resp }
+    }
     return c
   }
 
@@ -2787,6 +2901,22 @@ export class McBot extends EventEmitter {
       if (!blocks.length) throw new Error(`半径 ${r} 内找不到 ${want}（换更大的 radius，或先用 mc_scan 看看有什么）`)
     }
 
+    // 🔴 快路径 0：半径 5 格内且视线可达的掉落物实体 → 直接走过去拾取，跳过寻路
+    const pickupDrops = async () => {
+      const drops = Object.values(b.entities).filter((e) =>
+        e.objectType === 'Item' && e.position.distanceTo(b.entity.position) <= 5
+      )
+      let picked = 0
+      for (const drop of drops.slice(0, n)) {
+        if (name && drop.name !== name) continue
+        try {
+          await this.gotoPoint({ x: drop.position.x, y: drop.position.y, z: drop.position.z }, { arrive: 1.5, budget: 5000 })
+          picked++
+        } catch { /* 忽略单个失败 */ }
+      }
+      return picked
+    }
+
     // 2) 有 collectBlock 插件就走它
     if (b.collectBlock?.collect) {
       const got = []
@@ -2808,11 +2938,25 @@ export class McBot extends EventEmitter {
     for (const blk of blocks.slice(0, n)) {
       const p = { x: blk.position.x, y: blk.position.y, z: blk.position.z }
       try {
-        await this.gotoPoint(p, { arrive: 3, budget: 20_000 })
+        // 🔴 快路径 1：距离 ≤ 5 格且视线可达 → 直接 goto 到方块旁（arrive=2.5），不走完整寻路
+        const dist = b.entity.position.distanceTo(blk.position)
+        if (dist <= 5 && b.canSeeBlock(blk.position)) {
+          await this.gotoPoint({ x: p.x, y: p.y + 1, z: p.z }, { arrive: 2.5, budget: 8000 })
+        } else {
+          await this.gotoPoint(p, { arrive: 3, budget: 20_000 })
+        }
         const res = await this.breakBlock(p)
         got.push(res.broken ? `挖掉 ${res.broken}` : `${blk.name} 没挖掉`)
       } catch (e) {
-        got.push(`${blk.name} 失败：${String(e?.message ?? e).slice(0, 120)}`)
+        // 🔴 寻路失败回退：尝试走到方块正上方 / 同层相邻格
+        try {
+          const fallbackPos = { x: p.x, y: p.y + 1, z: p.z }
+          await this.gotoPoint(fallbackPos, { arrive: 3, budget: 10_000 })
+          const res = await this.breakBlock(p)
+          got.push(res.broken ? `挖掉 ${res.broken}（回退成功）` : `${blk.name} 没挖掉`)
+        } catch (e2) {
+          got.push(`${blk.name} 失败：${String(e2?.message ?? e2).slice(0, 120)}`)
+        }
       }
     }
     return { mode: 'walk+dig（没装 mineflayer-collectblock）', requested: Math.min(blocks.length, n), done: got, inventory: inventoryCounts(b) }

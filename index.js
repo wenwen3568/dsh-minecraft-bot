@@ -2913,8 +2913,13 @@ export function apply(ctx, rawConfig) {
       + 'setblock/fill/clone/summon/title/clear/xp）。要放行别的指令，在**普通会话**里用 `mc_admin_config` 改 '
       + '`commandWhitelist`（MC 模式会话改不了）。\n'
       + '⚠️ 这是**最后手段**：正经动作优先 `mc_act` / `mc_build` / `mc_move`（那些不需要 OP）。\n'
-      + '使用 mc_kit_rules{type:command} 获取可以使用的指令列表。',
-    parameters: { command: { type: 'string', required: true, description: '以 / 开头的完整指令' } },
+      + '使用 mc_kit_rules{type:command} 获取可以使用的指令列表。\n'
+      + '🔴 可选 `waitForResponse=true` 等待服务端回执（系统消息/命令反馈），避免"发了但服务端拒了"却误判成功。',
+    parameters: {
+      command: { type: 'string', required: true, description: '以 / 开头的完整指令' },
+      waitForResponse: { type: 'boolean', description: '是否等待服务端回执（默认 false）' },
+      responseTimeout: { type: 'number', description: '等待回执超时毫秒（默认 3000）' },
+    },
     output: text(),
     async execute(args, exec) {
       const sess = getSession(exec)
@@ -2924,7 +2929,11 @@ export function apply(ctx, rawConfig) {
         throw new Error(`指令 /${name} 不在白名单里。当前白名单：${JSON.stringify(pluginConfig.get('commandWhitelist'))}`
           + '（要放行请在普通会话里用 mc_admin_config 改 commandWhitelist）')
       }
-      return { sent: sess.bot.command(raw, { allow: (n) => pluginConfig.commandAllowed(n) }) }
+      return sess.bot.command(raw, {
+        allow: (n) => pluginConfig.commandAllowed(n),
+        waitForResponse: args.waitForResponse === true,
+        responseTimeout: Number(args.responseTimeout ?? 3000),
+      })
     },
   }))
 

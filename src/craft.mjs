@@ -554,7 +554,22 @@ export async function craftItem (bot, api, name, count = 1, opts = {}) {
 
       const usable = recipes.filter((r) => !recipeNeedsTable(r) || (useTable !== false && table))
       if (!usable.length) {
-        const err = new Error(`${targetName} 需要工作台，但没找到也放不出台子（背包里没有 ${CRAFTING_TABLE}，且合不出）`)
+        // 🔴 区分错误原因：给出更精确的提示（是"附近无台子"还是"背包无台子"还是"合不出"）
+        const nearbyCount = (typeof bot.findBlocks === 'function')
+          ? (bot.findBlocks({ matching: (x) => x?.name === CRAFTING_TABLE, maxDistance: 32, count: 6 }) ?? []).length
+          : 0
+        const invCount = countItem(bot, CRAFTING_TABLE)
+        let reason
+        if (nearbyCount === 0 && invCount === 0) {
+          reason = `附近 32 格内无工作台、背包里也没有、且合不出`
+        } else if (nearbyCount > 0 && invCount === 0) {
+          reason = `附近有 ${nearbyCount} 个工作台但都走不过去、背包里也没有、且合不出`
+        } else if (nearbyCount === 0 && invCount > 0) {
+          reason = `背包里有 ${invCount} 个工作台但无处可放（或放置失败）、且合不出`
+        } else {
+          reason = `附近有 ${nearbyCount} 个工作台走不过去、背包里有 ${invCount} 个但放不出、且合不出`
+        }
+        const err = new Error(`${targetName} 需要工作台，${reason}（缺口：${CRAFTING_TABLE} 差 1）`)
         err.gaps = [{ name: CRAFTING_TABLE, need: 1, have: 0, missing: 1 }]
         throw err
       }

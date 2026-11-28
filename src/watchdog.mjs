@@ -93,6 +93,12 @@ export const WATCH_DEFAULTS = {  /** 进服自动挂载（用户要求：进游�
   maxWakePerMinute: 6,
 
   /**
+   * 两次唤醒之间的最小间隔（秒）——防止伤害/传送等高频事件连续唤醒。
+   * 0 = 不限制（仅受 maxWakePerMinute 限制）。
+   */
+  minWakeIntervalSec: 10,
+
+  /**
    * 叫法（正则片段，大小写不敏感）。**这是配置不是代码**——AI 可以用 mc_config
    * 增删（例如玩家给它起了外号，它记下来）。
    *
@@ -180,6 +186,9 @@ export class Watchdog {
     /** 事件留档（readOutput 与 mc_events 读） */
     this.log = []
     this.maxLog = 200
+
+    /** 是否在最近一次唤醒后有过真实对话交互（用于 follow-up 判定） */
+    this._hasConversationSinceWake = false
 
     /** 绑定的监听器（disarm 时摘掉） */
     this._listeners = []
@@ -429,6 +438,8 @@ export class Watchdog {
     on('chat', ({ who, text }) => {
       const called = this.calledBy(text)
       const near = this.#isNearby(who)
+      // 🔴 只要有聊天消息（不限是谁说的），就标记"唤醒后有过对话"
+      this._hasConversationSinceWake = true
       // 同话题延续：唤醒后 topicWindowSec 内的发言直接算延续
       const topical = this.lastWakeAt > 0 && (Date.now() - this.lastWakeAt) < this.config.topicWindowSec * 1000
       const why = []
@@ -494,8 +505,24 @@ export class Watchdog {
     this.#record(detail.kind, detail.text)
 
     if (!reasons.length) return
-    this.pending.push({ reasons, ...detail, at: Date.now() })
-    if (!this.pendingSince) this.pendingSince = Date.now()
+    const now = Date.now()
+
+    // 🔴 伤害事件合并：同一来源 2 秒内只保留最新一条（避免 4 连击触发 4 次唤醒）
+    if (reasons.includes('damage')) {
+      // 移除 2 秒内的旧 damage 事件
+      this.pending = this.pending.filter((p) => {
+        if (!p.reasons.includes('damage')) return true
+        return now - (p.at || 0) >= 2000
+      })
+    }
+
+    // 🔴 死亡事件到达时清空未消费的伤害队列
+    if (reasons.includes('death')) {
+      this.pending = this.pending.filter((p) => !p.reasons.includes('damage'))
+    }
+
+    this.pending.push({ reasons, ...detail, at: now })
+    if (!this.pendingSince) this.pendingSince = now
   }
 
   #record (kind, text) {
@@ -525,11 +552,11 @@ export class Watchdog {
       }
     }
 
-    // 唤醒后等不到下文的补提醒
+    /** 唤醒后等不到下文的补提醒（仅在唤醒后有过真实对话时触发） */
     if (this.config.followUpAfterSec > 0 && this.lastWakeAt > 0) {
       const since = now - this.lastWakeAt
       const due = this.config.followUpAfterSec * 1000
-      if (since >= due && !this._followedUp) {
+      if (since >= due && !this._followedUp && this._hasConversationSinceWake) {
         this._followedUp = true
         this.#inject(`【提醒】距上次被叫醒已 ${Math.round(since / 1000)}s，对方没有再说话。`
           + '你可以：① 主动说点什么/做个动作；② 判断没事就继续挂机（不必回复）。', 'followUp')
@@ -537,10 +564,27 @@ export class Watchdog {
     }
   }
 
-  /** 把观察到的事件合并成一条消息注入当前会话 */
+  /** 唤醒时重置对话标记（每次唤醒后重新开始计数） */
+  #onWake () {
+    this._hasConversationSinceWake = false
+    this._followedUp = false
+  }
+
   #flush (why) {
     if (!this.pending.length) return
     const now = Date.now()
+
+    // 🔴 唤醒最小间隔：防止高频事件连续唤醒（配合 maxWakePerMinute 双重保护）
+    if (this.config.minWakeIntervalSec > 0 && this.lastWakeAt > 0) {
+      const sinceLast = now - this.lastWakeAt
+      if (sinceLast < this.config.minWakeIntervalSec * 1000) {
+        this.stats.suppressed++
+        this.#record('lifecycle', `唤醒被抑制（距上次 ${Math.round(sinceLast / 1000)}s < ${this.config.minWakeIntervalSec}s）`)
+        // 保留 pending 到下一个 tick 结算，或者直接丢弃（这里选丢弃避免积压）
+        this.pending = []
+        return
+      }
+    }
 
     // 限流
     this.wakeTimes = this.wakeTimes.filter((t) => now - t < 60_000)
@@ -567,7 +611,7 @@ export class Watchdog {
     this.#inject(body, allReasons.join('+'))
     this.lastWakeAt = now
     this.lastWakeKind = allReasons.join('+')
-    this._followedUp = false
+    this.#onWake()
     this.wakeTimes.push(now)
     this.stats.fired++
   }
