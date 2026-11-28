@@ -269,6 +269,20 @@ window.__ModuleLoader__.load({
 [data-wc-cn-item][data-wc-cn-manage]{color:var(--dsw-alias-label-tertiary);}
 [data-wc-cn-extras]{flex:1;min-width:0;}
 
+/* 游戏模式选择器 */
+[data-wc-cn-modewrap]{margin-bottom:10px;}
+[data-wc-cn-modes]{display:flex;gap:8px;}
+[data-wc-cn-mode]{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:7px 10px;text-align:left;
+  border:1px solid var(--dsw-alias-border-l3,var(--dsw-alias-border-l2,rgba(128,128,128,.28)));border-radius:10px;
+  background:transparent;cursor:pointer;font:inherit;}
+[data-wc-cn-mode]:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.14));}
+[data-wc-cn-mode][data-wc-cn-on]{border-color:var(--dsw-alias-state-business-primary,#4a8cff);
+  background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-bg-overlay));}
+[data-wc-cn-modename]{font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary);}
+[data-wc-cn-mode][data-wc-cn-on] [data-wc-cn-modename]{font-weight:600;}
+[data-wc-cn-modedesc]{font-size:11px;line-height:15px;color:var(--dsw-alias-label-tertiary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 /* 注入开关 label 里的文件名：文件不存在 → 斜体灰删除线（hover 提示见 title） */
 [data-wc-filename]{font-weight:400;}
 [data-wc-filename][data-wc-missing]{font-style:italic;color:var(--dsw-alias-label-tertiary);
@@ -1188,6 +1202,13 @@ select[data-wc-in]{appearance:none;padding-right:22px;
       microsoft: { label: '微软', chip: 'data-wc-chip-ms' },
     }
 
+    /** 游戏模式（弹窗卡片用） */
+    const GAME_MODES = [
+      { id: 'survival', label: '生存', desc: '自己挖矿合成，不给物品、不能飞' },
+      { id: 'creative', label: '创造', desc: '无限方块、可飞行，适合快速搭建' },
+      { id: 'adventure', label: '冒险', desc: '不能破坏和放置方块，只能探索交互' },
+    ]
+
     /** 类型气泡 */
     function TypeChip(props) {
       const t = ACCT_TYPE[props.type] ?? { label: props.type || '?', chip: 'data-wc-chip' }
@@ -2008,6 +2029,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState('')
       const [settingsOpen, setSettingsOpen] = React.useState(false)
+      const [gameMode, setGameMode] = React.useState('survival')   // 默认生存
       const pickRef = React.useRef(null)
       const inputRef = React.useRef(null)
 
@@ -2062,7 +2084,7 @@ select[data-wc-in]{appearance:none;padding-right:22px;
         const a = String(addr ?? '').trim()
         if (!a) { setError('请先填服务器地址'); return }
         setBusy(true); setError('')
-        apiPost('/api/mc/connect', { sessionId, address: a, accountId, via, asUser: props?.asUser === true })
+        apiPost('/api/mc/connect', { sessionId, address: a, accountId, via, asUser: props?.asUser === true, gameMode })
           .then(() => { if (via !== 'lan') refreshHistory(); closeAll() })
           .catch((e) => setError(errorText(e)))
           .finally(() => setBusy(false))
@@ -2170,6 +2192,23 @@ select[data-wc-in]{appearance:none;padding-right:22px;
         ),
         // ⑤ 配置卡片行：**固定在底部的 footer**（与上方内容之间留白）
         h('div', { 'data-wc-cn-foot': '' },
+          // 游戏模式选择器
+          h('div', { 'data-wc-cn-modewrap': '' },
+            h('div', { 'data-wc-cn-fieldlabel': '' }, '游戏模式'),
+            h('div', { 'data-wc-cn-modes': '' },
+              GAME_MODES.map((m) =>
+                h('button', {
+                  type: 'button', 'data-wc-cn-mode': '',
+                  ...(gameMode === m.id ? { 'data-wc-cn-on': '' } : {}),
+                  onClick: () => setGameMode(m.id),
+                  title: m.desc,
+                },
+                h('span', { 'data-wc-cn-modename': '' }, m.label),
+                h('span', { 'data-wc-cn-modedesc': '' }, m.desc)
+                )
+              )
+            )
+          ),
           h('div', { 'data-wc-cn-config': '' },
             h('div', null,
               h('div', { 'data-wc-cn-fieldlabel': '' }, '账户'),

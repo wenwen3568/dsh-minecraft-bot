@@ -145,25 +145,46 @@ function reachable (bot, name, need, depth, seen) {
  *    打分要能表达"这条配方我**现在真的做得出**"：
  *      · short   —— 还缺几种材料（越少越好，0 = 立刻能做）
  *      · blocked —— 缺的材料里**递归到底也补不动**的有几种（真·必须去挖的）
+ *      · have    —— 已经在背包里的材料总数（越多越好，作为 tie-break）
  *      · cells   —— 配方本身要摆几格（越少越省事）
+ *      · pref    —— 材料的"常见度"排序（橡木优先、樱花/竹子次之），作为最后 tie-break
  */
 function scoreRecipe (bot, recipe, depth = MAX_CRAFT_DEPTH) {
   const cost = recipeCost(bot, recipe)
   let short = 0
   let blocked = 0
+  let have = 0
   for (const c of cost) {
-    if (countItem(bot, c.name) >= c.count) continue
+    const inInv = countItem(bot, c.name)
+    if (inInv >= c.count) {
+      have += c.count
+      continue
+    }
     short++
+    have += inInv
     if (!reachable(bot, c.name, c.count, depth, new Set())) blocked++
   }
-  return { short, blocked, cells: cost.length }
+  // 材料"常见度"评分：树种前缀越常见越低（oak=0, spruce=1, birch=2, jungle=3, acacia=4, dark_oak=5, mangrove=6, cherry=7, bamboo=8, crimson=9, warped=10）
+  const WOOD_PREF = { oak: 0, spruce: 1, birch: 2, jungle: 3, acacia: 4, dark_oak: 5, mangrove: 6, cherry: 7, bamboo: 8, crimson: 9, warped: 10 }
+  let pref = 0
+  for (const c of cost) {
+    const prefix = c.name.split('_')[0]  // oak_log -> oak
+    pref += WOOD_PREF[prefix] ?? 50
+  }
+  return { short, blocked, have, cells: cost.length, pref }
 }
 
 /** 按"能不能真做出来"排序候选配方（最好的在前） */
 function rankRecipes (bot, recipes, depth = MAX_CRAFT_DEPTH) {
   return recipes
     .map((r) => ({ r, s: scoreRecipe(bot, r, depth) }))
-    .sort((a, b) => (a.s.blocked - b.s.blocked) || (a.s.short - b.s.short) || (a.s.cells - b.s.cells))
+    .sort((a, b) =>
+      (a.s.blocked - b.s.blocked) ||
+      (a.s.short - b.s.short) ||
+      (b.s.have - a.s.have) ||      // 🔴 have 越大越好（降序）
+      (a.s.cells - b.s.cells) ||
+      (a.s.pref - b.s.pref)          // 🔴 常见木种优先
+    )
     .map((x) => x.r)
 }
 

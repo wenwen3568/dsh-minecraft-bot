@@ -481,6 +481,51 @@ export class McBot extends EventEmitter {
     if (!p) return null
     return { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
   }
+  /**
+   * 服务器**实际**的游戏模式（`survival` / `creative` / `adventure` / `spectator`）。
+   *
+   * ⚠️ 这是**能力门控的唯一真判据**：用户在前端选的模式只是"意图"（服务器可能压根不给切），
+   *    所以 `mc_give` / 自动取物 / 飞行这些创造专属能力，一律看这里，不看用户选了什么。
+   */
+  gameMode () { return this.bot?.game?.gameMode ?? null }
+  /** 是不是创造（拿不到模式 = false，宁可保守：别乱给物品） */
+  get creative () { return this.gameMode() === 'creative' }
+
+  /**
+   * 设置本实例的**游戏模式门控策略**（由 McSession.modePolicy() 计算并传入）。
+   * 结构：{ give, fly, place, break, attack, use, cheat, isCheatCmd }
+   * - 字段为 false = 该能力被用户选的模式禁用
+   * - isCheatCmd: (cmd) => boolean 判某个指令是否属于作弊类
+   */
+  setPolicy (policy) {
+    if (policy && typeof policy === 'object') {
+      this.policy = policy
+    } else {
+      this.policy = null
+    }
+  }
+
+  /** 是否允许某个能力（有 policy 时取 policy，没 policy 时默认全允） */
+  can (action) {
+    if (!this.policy) return true
+    const v = this.policy[action]
+    return v !== false
+  }
+
+  /** 被拒时的默认理由（供工具抛错用） */
+  policyReason (action) {
+    if (!this.policy) return ''
+    const reasons = {
+      give: '创造专属功能：需要服务器把你设为创造模式，且你在「连接到MC」里选了创造。',
+      fly: '飞行是创造专属。用 mc_move{mode:"walk"} 走过去。',
+      place: '当前模式不允许放置方块。',
+      break: '当前模式不允许破坏方块。',
+      attack: '当前模式不允许攻击。',
+      use: '当前模式不允许使用方块/实体。',
+      cheat: '作弊类指令（gamemode/give/setblock/fill…）在当前模式下不可用。',
+    }
+    return reasons[action] ?? `${action} 在当前游戏模式下不可用。`
+  }
 
   log (...args) {
     const line = `[dsh_minecraft_bot ${new Date().toISOString().slice(11, 19)}] ${args.join(' ')}`
@@ -1760,7 +1805,7 @@ export class McBot extends EventEmitter {
    */
   async flyTo (x, y, z, { budget = 20_000 } = {}) {
     const b = this.requireBot()
-    if (b.game?.gameMode !== 'creative') throw new Error('飞行只在创造模式可用（当前 ' + b.game?.gameMode + '）')
+    if (!this.can('fly')) throw new Error(this.policyReason('fly'))
     const target = new Vec3(Number(x), Number(y), Number(z))
     const t0 = Date.now()
     let last = b.entity.position.clone()
@@ -1806,6 +1851,7 @@ export class McBot extends EventEmitter {
 
   async dig ({ name = null, pos = null, maxDistance = 6, count = 1 } = {}) {
     const b = this.requireBot()
+    if (!this.can('break')) throw new Error(this.policyReason('break'))
     const out = []
     const n = Math.min(Math.max(count, 1), 16)
     for (let i = 0; i < n; i++) {
@@ -2122,35 +2168,67 @@ export class McBot extends EventEmitter {
     //    （2026-11-23 真机踩到）。
     const furnaceBlock = furnace
     const window = await this.#t(Promise.resolve(b.openFurnace(furnaceBlock)), 'smelt', '打开熔炉')
+    let smeltError = null
+    let gained = 0
+    const takenNames = []
     try {
       if (typeof window.putFuel !== 'function') {
         throw new Error('这个窗口不是熔炉（没有 putFuel）——可能点到的方块不是熔炉，或被别的插件占用了')
       }
       await this.#t(Promise.resolve(window.putFuel(b.registry.itemsByName[fuelPick.name].id, null, Math.min(fuelNeed, fuelPick.count))), 'smelt', '放燃料')
       await this.#t(Promise.resolve(window.putInput(b.registry.itemsByName[inName].id, null, n)), 'smelt', '放料')
-      const out = await this.#t(this.#waitSmeltDone(b, inName, n, smeltBudget, window), 'smelt', `烧 ${n} 个 ${inName}`, smeltBudget)
-      // 产物要**主动取出**（不取的话它留在熔炉的产出槽里，背包看不到，等于白烧）
-      let taken = null
-      try {
-        if (typeof window.takeOutput === 'function') {
-          taken = await this.#t(Promise.resolve(window.takeOutput()), 'smelt', '取产物')
+
+      // 🔴 改进：不再只看输出槽计数，**主动把出好的产物取走**，直到拿满 want 个或炉子空了
+      // 这样能正确处理批量烧炼（每次取出后输出槽腾空，继续烧下一个），也能准确统计产出
+      const deadline = Date.now() + smeltBudget
+      let lastInp = -1
+      let idleCycles = 0
+      while (Date.now() < deadline) {
+        await sleep(800)  // 每 0.8s 检查一次（比一个冶炼周期 10s 短得多）
+        let outCount = 0, inpCount = 0
+        try { outCount = window.outputItem?.()?.count ?? 0 } catch { /* 没方法 */ }
+        try { inpCount = window.inputItem?.()?.count ?? 0 } catch { /* 没方法 */ }
+
+        // 先把出好的全取走
+        while (outCount > 0) {
+          try {
+            const t = await window.takeOutput()
+            if (t?.count) {
+              gained += t.count
+              takenNames.push(`${t.name}x${t.count}`)
+              if (gained >= n) break
+            }
+          } catch { break } // 取空了或报错
+          try { outCount = window.outputItem?.()?.count ?? 0 } catch { outCount = 0 }
         }
-      } catch (e) { this.log(`取熔炉产物失败（可能已被取出）：${e.message}`) }
-      const after = countItem(b, inName)
-      // 成功判据用"**输入真的少了**，或产物真的拿到手了"两条之一 —— 单看任一条都会误报。
-      const consumed = before - after
-      const gained = taken ? (taken.count ?? 0) : 0
-      const ok = consumed > 0 || gained > 0 || out.produced > 0
-      return {
-        input: inName, requested: n, fuel: fuelPick.name,
-        before, after, consumed,
-        produced: Math.max(consumed, gained, out.produced),
-        output: taken ? `${taken.name}x${taken.count ?? 1}` : null,
-        ok,
-        ...(ok ? {} : { note: '没烧出东西：确认这是可冶炼物品、燃料够、且熔炉没被别人占着' }),
+        if (gained >= n) break
+
+        // 炉子空了（没燃料、没原料、没产出）连续几个周期就判定结束
+        if (inpCount === 0 && outCount === 0) {
+          if (lastInp === 0) idleCycles++
+          else idleCycles = 0
+          if (idleCycles >= 2) break // 连续两次空闲 = 彻底没活了
+        } else {
+          idleCycles = 0
+        }
+        lastInp = inpCount
       }
-    } finally {
-      try { b.closeWindow(window) } catch { /* 窗口可能已关 */ }
+    } catch (e) { smeltError = e }
+    try { b.closeWindow(window) } catch { /* 窗口可能已关 */ }
+    await sleep(200)  // 等窗口关闭、背包同步
+
+    // 🔴 关窗后再读背包：这才是真实的 after（窗口开着时 bot.inventory 是陈旧的）
+    const after = countItem(b, inName)
+    const consumed = before - after
+    const ok = consumed > 0 || gained > 0
+    if (smeltError && !ok) throw smeltError
+    return {
+      input: inName, requested: n, fuel: fuelPick.name,
+      before, after, consumed,
+      produced: gained,                 // 🔴 现在是**真正拿到手的总数**
+      output: takenNames.join(', ') || null,
+      ok,
+      ...(ok ? {} : { note: '没烧出东西：确认这是可冶炼物品、燃料够、且熔炉没被别人占着' }),
     }
   }
 
@@ -2163,38 +2241,6 @@ export class McBot extends EventEmitter {
    *   ③ "数量不动就判 stalled"的阈值**必须大于一个冶炼周期**（1 个物品 = 10 秒）——
    *      原来设 1.5 秒，导致刚放完料就以为卡住了，冶炼明明成功却报"没烧出东西"。
    */
-  async #waitSmeltDone (b, inputName, want, timeoutMs, window = null) {
-    void b; void inputName   // 保留签名（调用方按位置传，改签名容易漏改）
-    const t0 = Date.now()
-    let lastOut = -1
-    let lastProgressAt = Date.now()
-    // 一个物品 10s（200 tick）；给它一个半周期的余量再判"卡住"
-    const stallMs = 15_000
-    /** 读熔炉两个槽（老版本 mineflayer 没有这些方法，读不到就按 0 算） */
-    const slots = () => {
-      let out = 0
-      let inp = 0
-      try { out = window?.outputItem?.()?.count ?? 0 } catch { /* 没有这个方法 */ }
-      try { inp = window?.inputItem?.()?.count ?? 0 } catch { /* 没有这个方法 */ }
-      return { out, inp }
-    }
-    while (Date.now() - t0 < timeoutMs) {
-      await sleep(400)
-      const { out, inp } = slots()
-      // ① 输出槽够数了
-      if (out >= want) return { produced: out, via: 'output-slot' }
-      // ② 输入槽空了 + 已经产出了一些 = 炉子干完活了（比如只塞得下这么多）
-      if (inp === 0 && out > 0) return { produced: out, via: 'input-empty' }
-      // ③ 进度看**输出槽**，别用背包里的输入数量（`putInput` 早就把原料移出背包了，
-      //    拿它当进度会永远"没变化"，白等满 25 秒后误判 stalled 提前收工）
-      if (out !== lastOut) { lastOut = out; lastProgressAt = Date.now() }
-      else if (Date.now() - lastProgressAt > stallMs) {
-        return { produced: out, via: 'stalled' }
-      }
-    }
-    return { produced: slots().out, via: 'timeout' }
-  }
-
   /* ───────────── 朝向（"看向我"就该用工具，不要用 /tp 指令） ───────────── */
 
   /** 目标点 → mineflayer 的 yaw/pitch（mineflayer yaw = 反方向 + PI） */
@@ -2245,10 +2291,55 @@ export class McBot extends EventEmitter {
     return null
   }
 
+  /**
+   * 自动寻找放置位置：在 bot 周围 4 格内找一个可放置的空气格，优先面朝向 bot 的那一面。
+   * 返回 Vec3 或 null。
+   */
+  #autoPlacePos () {
+    const b = this.requireBot()
+    const origin = b.entity.position.floored()
+    // 搜索范围：水平 4 格，垂直 -1 到 +2（脚下/平视/头顶）
+    const candidates = []
+    for (let dy = -1; dy <= 2; dy++) {
+      for (let dz = -4; dz <= 4; dz++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          if (dx === 0 && dz === 0 && dy === 0) continue // 自己脚下
+          const p = new Vec3(origin.x + dx, origin.y + dy, origin.z + dz)
+          const blk = b.blockAt(p)
+          if (!blk) continue // 未加载
+          if (!isAir(blk.name)) continue // 不是空气
+          const ref = this.#placeRef(p)
+          if (ref) candidates.push({ pos: p, ref, dist: b.entity.position.distanceTo(p) })
+        }
+      }
+    }
+    if (!candidates.length) return null
+    // 优先：距离近、且面朝向 bot（面向向量与 bot->pos 夹角小）
+    candidates.sort((a, b) => {
+      const toBotA = new Vec3(origin.x - a.pos.x, origin.y - a.pos.y, origin.z - a.pos.z)
+      const dotA = (a.ref.face.x * toBotA.x + a.ref.face.y * toBotA.y + a.ref.face.z * toBotA.z)
+      const faceScoreA = dotA > 0 ? 0 : 1 // 面向 bot 优先
+      const toBotB = new Vec3(origin.x - b.pos.x, origin.y - b.pos.y, origin.z - b.pos.z)
+      const dotB = (b.ref.face.x * toBotB.x + b.ref.face.y * toBotB.y + b.ref.face.z * toBotB.z)
+      const faceScoreB = dotB > 0 ? 0 : 1
+      return faceScoreA - faceScoreB || a.dist - b.dist
+    })
+    return candidates[0].pos
+  }
+
   /** 把背包里的方块放到某个坐标（先走近、必要时往上搭） */
   async placeBlock ({ x, y, z, name = null } = {}) {
     const b = this.requireBot()
-    const pos = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))
+    if (!this.can('place')) throw new Error(this.policyReason('place'))
+
+    // 自动定位：没给坐标就找个脚边能放的地方
+    let pos
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+      pos = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))
+    } else {
+      pos = this.#autoPlacePos()
+      if (!pos) throw new Error('找不到可放置的位置（周围全是实心方块或未加载）——请指定 x/y/z')
+    }
     const want = name ? String(name) : null
     // 选方块：指定名字，否则用背包里第一种可放置方块
     const pick = () => {
@@ -2261,7 +2352,7 @@ export class McBot extends EventEmitter {
     // 创造模式：背包里没有就**自动取**（协议级 set_creative_slot，不需要 OP）。
     // 不这么做的话"给个方块名就能建"不成立——AI 得先想起来调 mc_give，
     // 否则 mc_build 直接报"背包是空的"。生存模式没这福利（得自己挖/合成）。
-    if (!item && want && b.game?.gameMode === 'creative') {
+    if (!item && want && this.can('give')) {
       await this.giveItem({ name: want })
       item = pick()
     }
@@ -2277,7 +2368,7 @@ export class McBot extends EventEmitter {
     if (dist() > 4) {
       this._selfMovingAt = Date.now()
       try {
-        if (b.game?.gameMode === 'creative') await this.flyTo(pos.x + 2, pos.y + 1.5, pos.z + 2)
+        if (this.can('fly')) await this.flyTo(pos.x + 2, pos.y + 1.5, pos.z + 2)
         else await this.walkTo({ x: pos.x + 2, y: pos.y, z: pos.z + 2 }, { arrive: 2.5, budget: 25_000 })
       } catch (e) { approachError = e.message }
       this._selfMovingAt = Date.now()
@@ -2350,6 +2441,7 @@ export class McBot extends EventEmitter {
   /** 破坏某个坐标的方块（比 mc_dig 更直接：按坐标） */
   async breakBlock ({ x, y, z } = {}) {
     const b = this.requireBot()
+    if (!this.can('break')) throw new Error(this.policyReason('break'))
     const pos = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))
     const blk = b.blockAt(pos)
     if (!blk) throw new Error(`${pos.x},${pos.y},${pos.z} 未加载`)
@@ -2460,9 +2552,7 @@ export class McBot extends EventEmitter {
    */
   async giveItem ({ name, count = 1, slot = null } = {}) {
     const b = this.requireBot()
-    if (b.game?.gameMode !== 'creative') {
-      throw new Error(`取物只在创造模式可用（当前 ${b.game?.gameMode ?? '未知'}）；生存模式请挖或合成`)
-    }
+    if (!this.can('give')) throw new Error(this.policyReason('give'))
     const itemName = String(name ?? '').trim()
     if (!itemName) throw new Error('要给物品名（如 oak_planks / diamond_sword）')
     const type = b.registry?.itemsByName?.[itemName]
@@ -2484,7 +2574,7 @@ export class McBot extends EventEmitter {
   /** 清空背包（创造模式） */
   async clearInventory () {
     const b = this.requireBot()
-    if (b.game?.gameMode !== 'creative') throw new Error('清空背包只在创造模式可用')
+    if (!this.can('give')) throw new Error(this.policyReason('give'))
     await this.#t(b.creative.clearInventory(), 'give', '清空背包')
     return { cleared: true }
   }
@@ -2492,6 +2582,7 @@ export class McBot extends EventEmitter {
   /** 使用/激活方块或实体（开门、按按钮、拉杆、喂动物…） */
   async useBlock ({ x, y, z, who = null } = {}) {
     const b = this.requireBot()
+    if (!this.can('use')) throw new Error(this.policyReason('use'))
     if (who) {
       const needle = String(who).toLowerCase()
       const ent = Object.values(b.entities).find(
@@ -2511,6 +2602,7 @@ export class McBot extends EventEmitter {
   /** 攻击最近的实体（4.5 格内）；给 who 就按名字找 */
   async attack ({ who = null } = {}) {
     const b = this.requireBot()
+    if (!this.can('attack')) throw new Error(this.policyReason('attack'))
     const me = b.entity.position
     const needle = who ? String(who).toLowerCase() : null
     const list = Object.values(b.entities)
@@ -2648,6 +2740,10 @@ export class McBot extends EventEmitter {
     const c = String(cmd).trim()
     if (!c.startsWith('/')) throw new Error('指令必须以 / 开头')
     const name = c.slice(1).split(/\s+/)[0].toLowerCase()
+    // 模式门控：作弊类指令（gamemode/give/setblock/fill...）
+    if (this.policy && this.policy.isCheatCmd?.(name)) {
+      throw new Error(`/${name} 是作弊类指令，在当前游戏模式下不可用`)
+    }
     const ok = typeof allow === 'function' ? Boolean(allow(name)) : DEFAULT_COMMAND_WHITELIST.has(name)
     if (!ok) throw new Error(`指令不在白名单：/${name}`)
     b.chat(c)
@@ -2667,6 +2763,7 @@ export class McBot extends EventEmitter {
    */
   async collect ({ name = null, count = 1, radius = 32, pos = null } = {}) {
     const b = this.requireBot()
+    if (!this.can('break')) throw new Error(this.policyReason('break'))
     const n = Math.min(Math.max(Math.floor(Number(count) || 1), 1), 64)
     const r = Math.min(Math.max(Math.floor(Number(radius) || 32), 4), 64)
 

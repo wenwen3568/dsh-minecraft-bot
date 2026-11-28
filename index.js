@@ -55,6 +55,8 @@ import { statusPing, parseAddress, formatAddress, flattenMotd } from './src/ping
 import { isVersionSupported } from './src/mcversion.mjs'
 import { ServerHistory } from './src/serverhistory.mjs'
 import { buildConnectPrompt } from './src/connect-prompt.mjs'
+import { normalizeGameMode, DEFAULT_GAME_MODE } from './src/game-modes.mjs'
+import { effectiveCapabilities, CHEAT_COMMANDS } from './src/game-modes.mjs'
 import { waitForEvents } from './src/wait.mjs'
 
 export const name = 'dsh_minecraft_bot'
@@ -174,6 +176,12 @@ class McSession {
     this.maxEvents = 200
     this.watchdog = null            // 看门狗（Watchdog 实例，进服自动挂载）
     this.selectedAccount = null     // 本会话选定的账户 innerID（mc_accounts{action:"use"}）
+    // 本会话选定的**游戏模式**（survival / creative / adventure / spectator）：
+    // 由「连接到MC」弹窗的选择器写入（POST /api/mc/connect），mc_connect 也能改。
+    // ⚠️ 这是**用户意图**，不是"服务器实际模式"——真正的判据永远是 `bot.game.gameMode`
+    //    （服务器可能压根不给切）。它的用途有两个：① 注入连接提示词，让 AI 一开始就按这个模式干活；
+    //    ② 门控**创造专属**能力（mc_give / 自动取物 / fly），免得 AI 在生存服里撞一鼻子灰。
+    this.gameMode = null
     // 「正在等待」被打断的标记（看门狗要唤醒 AI 时置位）——见 src/wait.mjs 的文件头说明：
     // 宿主把 steer 放在下一个 step 边界投递，而 step 边界要等当前工具返回 ⇒
     // 一个 mc_events{waitSec} 就能把唤醒拖到最后。这个标记让等待提前收工。
@@ -249,6 +257,23 @@ class McSession {
       connection: this.bot.connectionView(),
       pendingEvents: this.events.length,
       watch: this.watchdog?.status() ?? null,
+      // 用户为本会话选的游戏模式（「连接到MC」弹窗）；null = 没选过
+      gameMode: this.gameMode ?? null,
+      // 服务器**实际**模式（进服后才有；这是能力门控的真判据）
+      serverGameMode: this.bot.gameMode?.() ?? null,
+    }
+  }
+
+  /**
+   * 计算本会话的**有效能力表**（用户意图 ∩ 服务器实际模式）。
+   * 用于工具层门控：mc_give、mc_move fly、mc_act place/break、mc_command 作弊指令等。
+   */
+  modePolicy () {
+    const caps = effectiveCapabilities(this.gameMode, this.bot.gameMode?.())
+    return {
+      ...caps,
+      // 细化：作弊指令单独判（cap.cheat 由 MODE_CAPS 决定）
+      isCheatCmd: (cmd) => caps.cheat ? false : CHEAT_COMMANDS.has(String(cmd).toLowerCase()),
     }
   }
 
@@ -1622,7 +1647,12 @@ export function apply(ctx, rawConfig) {
       const view = acc ? accounts.view(acc) : null
       const accountLabel = view ? `${view.name} (id: ${view.innerID})` : '(默认账户)'
       const asUser = body.asUser === true
-      const text = buildConnectPrompt({ address, account: accountLabel, via })
+      // 游戏模式：弹窗里的选择器给过来的（没给/认不出来 → 默认生存）。
+      // ⚠️ 只是**用户意图**，真正的能力门控还要和服务器实际模式取严（见 src/game-modes.mjs）。
+      const gameMode = normalizeGameMode(body.gameMode) ?? DEFAULT_GAME_MODE
+      // 记到会话上：mc_connect 会把服务器实际模式读出来，两者一起决定门控
+      try { registry.getOrCreate(sessionId).gameMode = gameMode } catch { /* 会话还没建就算了 */ }
+      const text = buildConnectPrompt({ address, account: accountLabel, via, gameMode })
       if (via !== 'lan') serverHistory.record(address)
       // 唤醒范式（照抄 src/watchdog.mjs）：先打断可能的 mc_events 等待，再 steer
       try { registry.peek(sessionId)?.interruptWait?.('connect') } catch { /* 没在等就算了 */ }
@@ -1864,6 +1894,8 @@ export function apply(ctx, rawConfig) {
       async execute(args, exec) {
         const sess = getSession(exec)
         sess.bot.setAbortSignal(exec?.signal)
+        // 套用本会话的模式门控（创造/生存/冒险）
+        sess.bot.setPolicy(sess.modePolicy())
         return lossless(await spec.execute(args, exec))
       },
     })

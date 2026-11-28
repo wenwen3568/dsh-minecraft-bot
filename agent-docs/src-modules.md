@@ -188,9 +188,20 @@
 
 ## 13c. `src/connect-prompt.mjs` —— 「连接到MC」注入的提示词
 
-- `buildConnectPrompt({address, account, via})` → 英文正文（`via='lan'` 时追加"该地址在局域网、可能是临时的"一行）。
+- `buildConnectPrompt({address, account, via, gameMode})` → 英文正文（`via='lan'` 时追加"该地址在局域网、可能是临时的"一行；**总是有一行游戏模式说明**，见 `src/game-modes.mjs::modePromptLine`）。
 - **追加插槽 `CONNECT_PROMPT_APPENDERS`**：`(ctx)=>string` 的数组，非空即按序追加（"因属性追加提示词"的扩展点，默认空）。
 - 可读版本同步在 `dev-docs/prompt/connect_to_mc.md`（**改一处要改两处**）。
+
+## 13c-1. `src/game-modes.mjs` —— 「机器人游戏模式」的唯一定义处
+
+- **`GAME_MODES`** = `[{id:'survival', label:'生存', desc:'...'}, {id:'creative', label:'创造', desc:'...'}, {id:'adventure', label:'冒险', desc:'...'}]` —— 前端弹窗卡片用的三种模式（`id` 会出现在 HTTP body / 提示词 / mc_status，**不要随便改**）。
+- `normalizeGameMode(v)`：校验 + 归一化（认不出来返回 null，调用方自决）。
+- `modeInfo(id)` / `modeLabel(id)`：展示信息 / 中文标签（日志/报错用）。
+- **`MODE_CAPS` / `SERVER_CAPS`**：用户意图层能力表 / 服务器实际模式硬限制（`give`/`fly`/`place`/`break`/`attack`/`use`/`cheat` 七项）。
+- `effectiveCapabilities(userMode, serverMode)` = 用户意图 ∩ 服务器实际（**取严**），返回 `{give,fly,place,break,attack,use,cheat}`。
+- `denyReason(cap, {userMode, serverMode})`：被拒时的**人话**（优先说服务器模式的锅，再提"去弹窗改模式"）。
+- `CHEAT_COMMANDS`：`mc_command` 里算作弊的指令（`gamemode/give/setblock/fill/clone/summon/effect/enchant/xp/experience/clear/defaultgamemode`）。
+- `modePromptLine(mode)`：连接提示词里追加的那一行（英文，见 `buildConnectPrompt` 调用）。
 
 ## 13d. `src/mcversion.mjs` —— MC 版本「在不在支持范围内」判定（2026-10-05）
 

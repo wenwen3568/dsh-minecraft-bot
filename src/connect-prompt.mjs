@@ -10,16 +10,22 @@
  *
  * 扩展点：{@link CONNECT_PROMPT_APPENDERS} —— "**因属性而追加提示词**"的插槽。
  *   每项 `(ctx) => string`；非空返回值按数组顺序追加到正文末尾。默认空。
- *   ctx = `{ address, account, via }`（via: `'manual' | 'lan'`）。
+ *   ctx = `{ address, account, via, gameMode }`（via: `'manual' | 'lan'`）。
+ *
+ * 游戏模式（2026-11-28）：ctx.gameMode 是用户在弹窗里选的模式（survival/creative/adventure）。
+ *   它**一定会**被写成正文里的一行（不是可选的 appender）——AI 一上来就该知道这局按什么玩法干，
+ *   否则它会先试 `mc_give` 再被拒，白烧一轮。具体文案见 src/game-modes.mjs 的 `modePromptLine`。
  * ============================================================================
  */
+
+import { modePromptLine } from './game-modes.mjs'
 
 /** 追加插槽（以后按属性往这里加；空数组 = 不加任何东西） */
 export const CONNECT_PROMPT_APPENDERS = []
 
 /**
  * 组装注入正文。
- * @param {{address:string, account:string, via?:'manual'|'lan'}} ctx
+ * @param {{address:string, account:string, via?:'manual'|'lan', gameMode?:string|null}} ctx
  *   `account` 形如 `DeepSeek (id: acc-1a2b3c4d)`
  * @returns {string}
  */
@@ -34,9 +40,11 @@ export function buildConnectPrompt (ctx) {
   if (via === 'lan') {
     lines.push('The address points to a server on the local network and may be temporary.')
   }
+  // 游戏模式：**总是**有一行（没选就是默认生存）
+  lines.push(modePromptLine(ctx?.gameMode))
   for (const fn of CONNECT_PROMPT_APPENDERS) {
     let extra = ''
-    try { extra = String(fn({ address, account, via }) ?? '').trim() } catch { extra = '' }
+    try { extra = String(fn({ address, account, via, gameMode: ctx?.gameMode ?? null }) ?? '').trim() } catch { extra = '' }
     if (extra) lines.push(extra)
   }
   return lines.join('\n')
