@@ -2,7 +2,8 @@
 
 [![Moe Counter](https://count.getloli.com/get/dsh-minecraft-bot@?theme=moebooru)](https://github.com/wenwen3568/dsh-minecraft-bot/)
 
-</div>
+</div> 
+
 # dsh-minecraft-bot
 
 **[English ↓](#english)** · 中文 · [![CI](https://github.com/wenwen3568/dsh-minecraft-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/wenwen3568/dsh-minecraft-bot/actions/workflows/ci.yml)
